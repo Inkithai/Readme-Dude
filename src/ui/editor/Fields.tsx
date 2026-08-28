@@ -284,6 +284,7 @@ export function Btn({
   disabled,
   type = "button",
   className = "",
+  ariaLabel,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -293,6 +294,12 @@ export function Btn({
   disabled?: boolean;
   type?: "button" | "submit";
   className?: string;
+  /**
+   * Declared explicitly because `Btn` does not spread props onto the DOM node:
+   * an `aria-label` passed as a bare hyphenated prop typechecks but is
+   * silently dropped, which is how an accessible name goes missing unnoticed.
+   */
+  ariaLabel?: string;
 }) {
   const base =
     "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-40";
@@ -307,6 +314,7 @@ export function Btn({
     <button
       type={type}
       title={title}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={onClick}
       className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}

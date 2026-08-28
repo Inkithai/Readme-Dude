@@ -133,7 +133,7 @@ export function Toolbar({
           title="Show / hide the preview pane"
           onClick={onTogglePreviewPane}
           className="xl:hidden"
-          aria-label="Toggle preview pane"
+          ariaLabel="Toggle preview pane"
         >
           <Eye size={12} /> Preview
         </Btn>

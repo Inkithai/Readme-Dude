@@ -13,7 +13,7 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 106 tests (engine, golden fixture, store, mounted-shell integration)
+npm test           # 107 tests (engine, golden fixture, store, mounted-shell integration)
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
 ```
 

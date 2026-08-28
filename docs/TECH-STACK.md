@@ -14,7 +14,7 @@ Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measu
 
 ## 0. Status: what Phase 1 actually ships
 
-Phase 1 (the roadmap's "Core README builder") is implemented, with 106 tests
+Phase 1 (the roadmap's “Core README builder”) is implemented, with 107 tests
 covering the engine, the store and the mounted shell.
 
 | Roadmap Phase 1 item | Where it lives |
@@ -404,7 +404,7 @@ Aligned with roadmap §9 ("What I would NOT build initially"):
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 106 tests: engine, golden fixture, store, mounted-shell integration
+npm test           # 107 tests: engine, golden fixture, store, mounted-shell integration
 npm run typecheck  # tsc -b
 npm run lint       # biome check src
 npm run build      # → dist/, preview with `npm run preview`

@@ -157,6 +157,11 @@ describe("ReadMe Studio shell", () => {
     expect(JSON.parse(saved as string).blocks).toHaveLength(1);
   });
 
+  it("forwards aria-label through Btn to the DOM (props are not spread)", () => {
+    render(<App />);
+    expect(screen.getByRole("button", { name: "Toggle preview pane" })).toBeTruthy();
+  });
+
   it("keeps the three panes present on wide viewports", () => {
     render(<App />);
     expect(screen.getByRole("navigation", { name: "Block palette" })).toBeTruthy();
