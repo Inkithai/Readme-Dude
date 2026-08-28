@@ -31,18 +31,20 @@ import { Btn } from "@/ui/editor/Fields";
 const MarkdownPreview = lazy(() => import("./MarkdownPreview"));
 
 type Tab = "preview" | "markdown" | "issues";
+
+const TAB_KEY = "readme-buddy:tab";
 type Width = "fill" | "desktop" | "mobile";
 
 function usePersistedTab(): [Tab, (tab: Tab) => void] {
   const [tab, setTab] = useState<Tab>(() => {
-    const saved = storage.get("readme-studio:tab");
+    const saved = storage.get(TAB_KEY) ?? storage.get("readme-studio:tab");
     return saved === "markdown" || saved === "issues" || saved === "preview" ? saved : "preview";
   });
   return [
     tab,
     (next) => {
       setTab(next);
-      storage.set("readme-studio:tab", next);
+      storage.set(TAB_KEY, next);
     },
   ];
 }

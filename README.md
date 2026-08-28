@@ -1,12 +1,19 @@
-# ReadMe Studio
+# ReadMe Buddy
 
-A visual GitHub README design studio: compose blocks, choose how each section is
+<p align="center">
+  <img src="public/og-image.png" alt="ReadMe Buddy — build READMEs worth reading, in blocks, not by hand" width="100%" />
+</p>
+
+A visual GitHub README builder: compose blocks, choose how each section is
 presented, preview it like github.com, export Markdown. Frontend-only — no backend,
 no account, your document stays in your browser.
 
 > **Status: Phase 1 (core builder) is implemented.** The rest of this document is the
 > product roadmap that Phase 1 was built against.
 > Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
+>
+> Renamed from *ReadMe Studio*; `localStorage` keys migrate on first load, so a
+> document autosaved by the earlier build is picked up under the new namespace.
 
 ## Run it
 
@@ -40,6 +47,14 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 Block (zod schema)  →  compile.ts (pure functions)  →  GitHub Flavored Markdown
                     ↘  react-markdown + github-markdown-css  →  preview
 ```
+
+## Brand
+
+`public/mark.svg` is the mark — a folded-corner page that smiles, i.e. a README that is
+glad to see you. `logo.svg` / `logo-inverse.svg` are the lockups for light and dark
+backgrounds, `og.svg` the social card. The PNGs are committed, so a build never needs a
+rasteriser; after editing an SVG run `npm run brand:assets` (requires `sharp` — see the
+header of `scripts/gen-brand-assets.mjs`).
 
 `src/engine/**` never imports React. That single rule is what keeps the compiler
 testable, keeps the Markdown correct, and keeps the door open on the roadmap's later
@@ -776,7 +791,7 @@ Because the core is client-side, this can remain extremely cheap to host.
 I'd aim for this:
 
 ```text
-                     README STUDIO
+                      README BUDDY
                           │
              ┌────────────┴────────────┐
              │                         │
@@ -805,7 +820,7 @@ Later:
                       │
                GitHub Integration
                       │
-README Studio ────────┤
+README Buddy ─────────┤
                       │
                  Repository
                   Analysis

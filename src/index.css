@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ *
- * Studio chrome. Utilities do the layout work; this file only holds what
+ * App chrome (ReadMe Buddy). Utilities do the layout work; this file only holds what
  * Tailwind can't express: scrollbars, drag affordances, and the scoping
  * rules that keep github-markdown-css from leaking into the tool UI
  * (docs/TECH-STACK.md §4 — "Tailwind + github-markdown-css collision").
@@ -9,8 +9,8 @@
 
 :root {
   color-scheme: dark;
-  --studio-bg: #09090b;
-  --studio-accent: #818cf8;
+  --app-bg: #09090b;
+  --app-accent: #818cf8;
 }
 
 html,
@@ -21,7 +21,7 @@ body,
 
 body {
   margin: 0;
-  background: var(--studio-bg);
+  background: var(--app-bg);
   color: #d4d4d8;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -33,7 +33,7 @@ body {
 }
 
 *:focus-visible {
-  outline: 2px solid var(--studio-accent);
+  outline: 2px solid var(--app-accent);
   outline-offset: 1px;
   border-radius: 4px;
 }
@@ -78,7 +78,7 @@ body {
   height: 0.25rem;
   transform: translateY(-50%);
   border-radius: 999px;
-  background: var(--studio-accent);
+  background: var(--app-accent);
   box-shadow: 0 0 0 3px rgb(99 102 241 / 0.18);
 }
 .rs-gap[data-over="true"]::after {
@@ -89,7 +89,7 @@ body {
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--studio-accent);
+  color: var(--app-accent);
 }
 
 textarea,

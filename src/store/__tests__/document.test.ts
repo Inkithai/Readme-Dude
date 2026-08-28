@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { type Block, createBlock } from "@/engine";
-import { history, useDocument } from "../document";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type Block, createBlock, parseDocumentJson, serializeDocument } from "@/engine";
+import { storage } from "@/lib/storage";
+import { AUTOSAVE_KEY, history, readAutosavePayload, useDocument } from "../document";
+
+const LEGACY = "readme-studio:autosave:v1";
+const clearAutosave = () => {
+  storage.remove(AUTOSAVE_KEY);
+  storage.remove(LEGACY);
+};
 
 const state = () => useDocument.getState();
 /** One safe accessor for `(state().blocks[i]?.props as …).key` chains. */
@@ -118,5 +125,39 @@ describe("document store", () => {
     const result = state().importJson("{ broken json");
     expect(result.ok).toBe(false);
     expect(state().blocks.map((b) => b.id)).toEqual([before]);
+  });
+});
+
+describe("autosave storage namespace", () => {
+  const payload = serializeDocument("legacy doc", [createBlock("heading")]);
+
+  beforeEach(clearAutosave);
+  afterEach(clearAutosave);
+
+  it("reads the current key", () => {
+    storage.set(AUTOSAVE_KEY, payload);
+    expect(readAutosavePayload()).toBe(payload);
+  });
+
+  it("recovers a document saved under the retired app name and re-keys it", () => {
+    storage.set(LEGACY, payload);
+    expect(readAutosavePayload()).toBe(payload);
+    expect(storage.get(AUTOSAVE_KEY)).toBe(payload);
+  });
+
+  it("prefers the current key when both exist", () => {
+    storage.set(LEGACY, "stale");
+    storage.set(AUTOSAVE_KEY, payload);
+    expect(readAutosavePayload()).toBe(payload);
+  });
+
+  it("leaves nothing behind on a fresh profile", () => {
+    expect(readAutosavePayload()).toBeNull();
+    expect(storage.get(AUTOSAVE_KEY)).toBeNull();
+  });
+
+  it("still parses into a real document after migration", () => {
+    storage.set(LEGACY, payload);
+    expect(parseDocumentJson(readAutosavePayload() ?? "").document.name).toBe("legacy doc");
   });
 });

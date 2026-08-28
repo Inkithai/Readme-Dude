@@ -251,7 +251,7 @@ export const DocumentSchema = z.object({
   name: z.string().default("untitled"),
   blocks: z.array(BlockSchema),
 });
-export type StudioDocument = z.infer<typeof DocumentSchema>;
+export type ReadmeDocument = z.infer<typeof DocumentSchema>;
 
 export type BlockCategory = "structure" | "content" | "media" | "project";
 

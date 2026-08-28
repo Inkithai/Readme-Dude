@@ -92,11 +92,15 @@ export function Toolbar({
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-zinc-800/80 bg-zinc-900/40 px-2.5 py-2">
       <div className="flex items-center gap-2">
-        <span className="grid size-6 place-items-center rounded-md bg-indigo-500/90 font-mono text-[13px] font-bold text-white">
-          R
-        </span>
+        <img
+          src={`${import.meta.env.BASE_URL}mark.svg`}
+          alt=""
+          width={22}
+          height={22}
+          className="size-[22px] shrink-0 rounded-[6px]"
+        />
         <span className="hidden text-[13px] font-semibold tracking-tight text-zinc-100 md:inline">
-          ReadMe Studio
+          ReadMe <span className="text-indigo-300">Buddy</span>
         </span>
         <span className="hidden rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-zinc-500 uppercase lg:inline">
           phase 1
@@ -144,7 +148,7 @@ export function Toolbar({
           onClick={() => {
             flushAutosave();
             downloadText(
-              `${slugify(name) || "readme-studio"}.json`,
+              `${slugify(name) || "readme-buddy"}.json`,
               serializeDocument(name, blocks),
               "application/json",
             );

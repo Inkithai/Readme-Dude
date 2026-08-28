@@ -1,4 +1,4 @@
-import { type Block, BlockSchema, DocumentSchema, newBlockId, type StudioDocument } from "./schema";
+import { type Block, BlockSchema, DocumentSchema, newBlockId, type ReadmeDocument } from "./schema";
 
 /* ------------------------------------------------------------------ *
  * engine/io.ts — the .json project format (save / restore / import).
@@ -9,13 +9,13 @@ import { type Block, BlockSchema, DocumentSchema, newBlockId, type StudioDocumen
  * ------------------------------------------------------------------ */
 
 export interface ParseResult {
-  document: StudioDocument;
+  document: ReadmeDocument;
   dropped: number;
   errors: string[];
 }
 
 export function serializeDocument(name: string, blocks: Block[]): string {
-  return JSON.stringify({ version: 1, name, blocks } satisfies StudioDocument, null, 2);
+  return JSON.stringify({ version: 1, name, blocks } satisfies ReadmeDocument, null, 2);
 }
 
 export function parseDocument(raw: unknown): ParseResult {

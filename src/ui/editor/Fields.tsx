@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Copy, Plus, Trash2 } from "lucide-rea
 import { type ReactNode, useCallback, useId, useState } from "react";
 
 /* ------------------------------------------------------------------ *
- * ui/editor/Fields.tsx — the studio's form kit.
+ * ui/editor/Fields.tsx — ReadMe Buddy's form kit.
  *
  * The product is a property-panel editor (see docs/TECH-STACK.md §3), so
  * these few controls are the whole editing surface. `Segmented` is the

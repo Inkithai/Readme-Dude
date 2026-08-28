@@ -1,9 +1,9 @@
 {
-  "name": "readme-studio",
+  "name": "readme-buddy",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A visual GitHub README design studio \u2014 compose, customize, preview and export READMEs without writing Markdown by hand.",
+  "description": "ReadMe Buddy \u2014 a visual GitHub README builder: compose blocks, preview like github.com, export Markdown. Frontend-only.",
   "engines": {
     "node": ">=22.12"
   },
@@ -12,6 +12,7 @@
     "build": "tsc -b --noCheck && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --force",
+    "brand:assets": "node scripts/gen-brand-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src",

@@ -458,7 +458,7 @@ export function compileBlock(block: Block): string {
   } catch (error) {
     // Never let one malformed block destroy the whole export.
     const reason = error instanceof Error ? error.message : String(error);
-    return `<!-- readme-studio: could not compile "${block.type}" block (${reason}) -->`;
+    return `<!-- readme-buddy: could not compile "${block.type}" block (${reason}) -->`;
   }
 }
 

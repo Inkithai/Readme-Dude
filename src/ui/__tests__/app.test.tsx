@@ -16,7 +16,7 @@ const state = () => useDocument.getState();
 const prop = (index: number, key: string): unknown =>
   (state().blocks[index]?.props as Record<string, unknown> | undefined)?.[key];
 
-describe("ReadMe Studio shell", () => {
+describe("ReadMe Buddy shell", () => {
   beforeEach(() => {
     localStorage.clear();
     state().replaceBlocks([]);

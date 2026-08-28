@@ -2,7 +2,7 @@
 
 Status: **adopted — Phase 1 built** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
 
-This document picks the stack for ReadMe Studio and, more importantly, records *why* — so a
+This document picks the stack for ReadMe Buddy (filed under its earlier name, *ReadMe Studio*) and, more importantly, records *why* — so a
 future-you doesn't re-litigate it or silently drift into a worse choice.
 
 All version numbers below were checked against the npm registry on **2026-08-28**, and the core
@@ -163,7 +163,7 @@ roadmap's V6 escape route — the same engine can later drive a CLI, a VS Code e
 | **Vite 8 + React (no router at MVP)** | ✅ Winner. The product is a tool; there is nothing to SSR. |
 | **Next.js 16** | ✗ for MVP: static export (`output: 'export'`) forbids the App-Router features that justify Next, so you pay the RSC mental model and get a bundler. |
 | **Next.js later, for marketing only** | 🟡 Keep as the *documented* answer for the roadmap's "SEO landing pages" (Phase 10) — see the escape hatch below. |
-| **Astro (islands)** | 🟡 Actually the best fit *if* you ever split marketing from app: Astro for SEO landing pages + the Vite-built React studio embedded as an island. Deferred, not rejected. |
+| **Astro (islands)** | 🟡 Actually the best fit *if* you ever split marketing from app: Astro for SEO landing pages + the Vite-built React app embedded as an island. Deferred, not rejected. |
 | **Vite + `vite-plugin-prerender`** | ✗ Adds fragility for modest gain; only consider if you refuse a second repo. |
 
 **SEO escape hatch (decision, not a TODO):** keep `docs/` + template gallery + landing pages as

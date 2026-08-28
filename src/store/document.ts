@@ -22,7 +22,10 @@ import { storage } from "@/lib/storage";
  * from undo so clicking around never pollutes the timeline.
  * ------------------------------------------------------------------ */
 
-export const AUTOSAVE_KEY = "readme-studio:autosave:v1";
+export const AUTOSAVE_KEY = "readme-buddy:autosave:v1";
+
+/** The app shipped as "ReadMe Studio"; readers keep picking up those documents. */
+const LEGACY_AUTOSAVE_KEY = "readme-studio:autosave:v1";
 
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "unavailable";
 
@@ -70,8 +73,20 @@ const EMPTY: DocumentState = {
   droppedOnLoad: 0,
 };
 
+/**
+ * Reads the autosave payload, adopting the retired key once so a document saved
+ * while this app was named "ReadMe Studio" still opens instead of looking empty.
+ * Exported for tests; the write-back happens here so a successful read is enough
+ * to move off the old namespace.
+ */
+export function readAutosavePayload(): string | null {
+  const raw = storage.get(AUTOSAVE_KEY) ?? storage.get(LEGACY_AUTOSAVE_KEY);
+  if (raw && !storage.get(AUTOSAVE_KEY)) storage.set(AUTOSAVE_KEY, raw);
+  return raw;
+}
+
 function hydrate(): Pick<DocumentState, "blocks" | "name" | "droppedOnLoad" | "saveStatus"> {
-  const raw = storage.get(AUTOSAVE_KEY);
+  const raw = readAutosavePayload();
   if (!raw) return { blocks: [], name: "untitled", droppedOnLoad: 0, saveStatus: "idle" };
   try {
     const { document, dropped } = parseDocument(JSON.parse(raw));
