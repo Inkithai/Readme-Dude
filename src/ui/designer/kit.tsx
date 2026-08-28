@@ -21,8 +21,10 @@ export function ImageThumb({ url, height = 44, label }: { url: string; height?: 
   const [failed, setFailed] = useState(false);
   const src = url.trim();
   if (!src || failed) return null;
+  // A div, not a figure: this renders inside `Field`'s <label>, and a figure is
+  // flow content where only phrasing content is allowed.
   return (
-    <figure className="mt-1.5 mb-0">
+    <div className="mt-1.5">
       <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-950" style={{ height }}>
         <img
           src={src}
@@ -32,8 +34,8 @@ export function ImageThumb({ url, height = 44, label }: { url: string; height?: 
           className="mx-auto block h-full w-auto max-w-full object-contain"
         />
       </div>
-      {label ? <figcaption className="mt-1 text-[10px] text-zinc-600">{label}</figcaption> : null}
-    </figure>
+      {label ? <span className="mt-1 block text-[10px] text-zinc-600">{label}</span> : null}
+    </div>
   );
 }
 

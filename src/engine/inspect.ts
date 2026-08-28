@@ -5,7 +5,11 @@ import type { Block, BlockType } from "./schema";
  * canvas (collapsed card labels) and the block-count badge.
  * ------------------------------------------------------------------ */
 
-const asRecord = (block: Block): Record<string, unknown> => block.props as unknown as Record<string, unknown>;
+/** A block whose props are junk (mid-import, mid-bug) still needs a card. */
+const asRecord = (block: Block): Record<string, unknown> =>
+  typeof block.props === "object" && block.props !== null && !Array.isArray(block.props)
+    ? (block.props as unknown as Record<string, unknown>)
+    : {};
 
 const clip = (value: string, max = 68): string => {
   const oneLine = value.replace(/\s+/g, " ").trim();

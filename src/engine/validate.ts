@@ -42,6 +42,24 @@ export interface ValidateOptions {
   kind?: DocumentKind;
 }
 
+/**
+ * `props` is typed as an object, but nothing on this path re-validates it:
+ * `patchProps`, `insertBlock` and `replaceBlocks` write straight into the
+ * model, and the Checks tab runs on every render. Reading a key off `null` here
+ * would not lose a warning, it would take the whole preview pane down — so the
+ * validator is as tolerant as the compiler it reports on.
+ */
+/** Array fields can arrive as `{}` or `"junk"` from the same unvalidated path. */
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function propsOf(block: Block): Record<string, unknown> {
+  const props = block.props;
+  if (typeof props !== "object" || props === null || Array.isArray(props)) return {};
+  return props as unknown as Record<string, unknown>;
+}
+
 export function validateDocument(blocks: Block[], markdown: string, options: ValidateOptions = {}): Issue[] {
   const issues: Issue[] = [];
   const push = (issue: Issue) => issues.push(issue);
@@ -119,7 +137,7 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
   // when it carries prose — that half renders on its own.
   for (const block of blocks) {
     if (block.type !== "image") continue;
-    const props = block.props as unknown as Record<string, unknown>;
+    const props = propsOf(block);
     // Same precedence as the compiler: a row you have started is
     // authoritative, so the block-level URL hiding under it is not a source.
     const items = Array.isArray(props.items) ? (props.items as { url?: unknown }[]) : [];
@@ -205,7 +223,7 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
   // never fires is worse than no rule, because it reads like coverage.
   const LABEL_KEYS = new Set(["title", "text", "summary", "label", "alt"]);
   for (const block of blocks) {
-    for (const [key, value] of Object.entries(block.props as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(propsOf(block))) {
       if (typeof value !== "string" || !LABEL_KEYS.has(key)) continue;
       if ((value.match(/(?<!\\)\*\*/g)?.length ?? 0) % 2 !== 0) {
         push({
@@ -235,13 +253,18 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
     // Hero buttons are the same shape and the same mistake, so they are checked
     // here too — the compiler drops them rather than emitting `href=""` (an
     // empty anchor *is* clickable on GitHub: verified, and it is a dead button).
-    const linky = block.props as {
+    const linky = propsOf(block) as {
       items?: { url?: string; label?: string }[];
       buttons?: { url?: string; label?: string }[];
     };
-    const items = [...(linky.items ?? []), ...(linky.buttons ?? [])];
+    const items = [
+      ...asArray<{ url?: string; label?: string }>(linky.items),
+      ...asArray<{ url?: string; label?: string }>(linky.buttons),
+    ];
     for (const item of items) {
-      if (item.label && !(item.url ?? "").trim()) {
+      // `item?.` because a hand-edited list can hold a `null` slot, and a
+      // validator that throws takes the preview pane with it.
+      if (item?.label && !(item.url ?? "").trim()) {
         push({
           level: "error",
           rule: "link-without-url",
@@ -272,7 +295,7 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
   // raw syntax. (Our Collapsible block inserts it; a hand-written Text body may not.)
   const pasted = blocks.filter((b) => b.type === "text");
   for (const block of pasted) {
-    const body = String((block.props as Record<string, unknown>).body ?? "");
+    const body = String(propsOf(block).body ?? "");
     if (/<\/summary>\s*\n(?!\s*\n)\s*[^<\s]/.test(body)) {
       push({
         level: "warning",
@@ -337,7 +360,7 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
   // author, which is exactly what this list is for.
   for (const block of blocks) {
     if (block.type !== "table") continue;
-    const p = block.props as { columns?: unknown[]; rows?: unknown[][] };
+    const p = propsOf(block) as { columns?: unknown[]; rows?: unknown[][] };
     const width = Array.isArray(p.columns) ? p.columns.length : 0;
     if (width === 0) continue;
     const rows = Array.isArray(p.rows) ? p.rows : [];
@@ -395,13 +418,14 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
     }
     // The one thing a profile page must do is let someone reach you.
     const reaches = shown.some((b) => {
-      const p = b.props as {
+      const p = propsOf(b) as {
         items?: { linkUrl?: string; url?: string }[];
         buttons?: { url?: string; linkUrl?: string }[];
       };
-      return [...(p.items ?? []), ...(p.buttons ?? [])].some(
-        (i) => (i.url ?? "").trim() || (i.linkUrl ?? "").trim(),
-      );
+      return [
+        ...asArray<{ url?: string; linkUrl?: string }>(p.items),
+        ...asArray<{ url?: string; linkUrl?: string }>(p.buttons),
+      ].some((i) => (i?.url ?? "").trim() || (i?.linkUrl ?? "").trim());
     });
     if (!reaches) {
       push({
@@ -444,13 +468,17 @@ function proseLines(markdown: string): string[] {
 }
 
 function readBody(block: Block): string {
-  const props = block.props as unknown as Record<string, unknown>;
+  const props = propsOf(block);
   if (block.type === "text") return String(props.body ?? "");
   if (block.type === "installation") {
-    return ((props.steps as { body: string }[]) ?? []).map((s) => s?.body ?? "").join("\n");
+    return asArray<{ body?: string }>(props.steps)
+      .map((s) => s?.body ?? "")
+      .join("\n");
   }
   if (block.type === "usage") {
-    return ((props.examples as { body: string }[]) ?? []).map((s) => s?.body ?? "").join("\n");
+    return asArray<{ body?: string }>(props.examples)
+      .map((s) => s?.body ?? "")
+      .join("\n");
   }
   return "";
 }
@@ -470,13 +498,13 @@ function collectUrls(block: Block, only?: RegExp): string[] {
       for (const [k, v] of Object.entries(value)) walk(v, k);
     }
   };
-  walk(block.props);
+  walk(propsOf(block));
   return found;
 }
 
 function countOddFence(block: Block): boolean {
   if (block.type !== "code") return false;
-  const props = block.props as unknown as Record<string, unknown>;
+  const props = propsOf(block);
   return /^ {0,3}`{3,}/m.test(String(props.body ?? ""));
 }
 

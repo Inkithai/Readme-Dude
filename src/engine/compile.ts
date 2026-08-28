@@ -111,7 +111,16 @@ const label = (value: string | null | undefined): string => escapeInlineMarkdown
 type AnyProps = Record<string, unknown>;
 
 function withProps<T extends BlockType>(block: Block, _type: T): PropsOf<T> & AnyProps {
-  return block.props as unknown as PropsOf<T> & AnyProps;
+  const props = block.props;
+  // Not every caller runs through zod: `patchProps`, `insertBlock` and
+  // `replaceBlocks` write straight into the model, so a `null` or a stray
+  // string can reach here from a UI bug or a hand-merged document. Reading a
+  // property off `null` throws, and a throw replaces the user's section with an
+  // HTML comment — which is a worse outcome than an empty one.
+  if (typeof props !== "object" || props === null || Array.isArray(props)) {
+    return {} as PropsOf<T> & AnyProps;
+  }
+  return props as unknown as PropsOf<T> & AnyProps;
 }
 
 function compileHero(block: Block): string {
@@ -119,7 +128,11 @@ function compileHero(block: Block): string {
   const lines: string[] = [`<div align="${p.align === "left" ? "left" : "center"}">`];
   const logo = safeUrl(p.logoUrl as string);
   if (logo) {
-    lines.push(`  <img src="${logo}" alt="Logo" width="${Number(p.logoWidth) || 96}" />`, "");
+    // `clampedWidth`, like the banner below: this field used to be emitted
+    // verbatim, so a hand-edited 99999 or 0.5 became a README-wide layout
+    // explosion (schema bounds are not a runtime guard — `patchProps` skips
+    // zod, and JSON import is permissive by design).
+    lines.push(`  <img src="${logo}" alt="Logo" width="${clampedWidth(p.logoWidth, 96, 1000)}" />`, "");
   }
   lines.push(`  <h1>${escapeHtml(nl(p.title as string))}</h1>`, "");
   const subtitle = nl(p.subtitle as string);
@@ -279,9 +292,9 @@ function pxWidth(value: unknown, fallback = 0): string {
   if (!Number.isFinite(n) || n <= 0) return "";
   return ` width="${Math.min(2400, n || fallback)}"`;
 }
-const clampedWidth = (value: unknown, fallback: number): number => {
+const clampedWidth = (value: unknown, fallback: number, max = 2400): number => {
   const n = Math.trunc(Number(value));
-  return Number.isFinite(n) && n > 0 ? Math.min(2400, n) : fallback;
+  return Number.isFinite(n) && n > 0 ? Math.min(max, n) : fallback;
 };
 
 const shotImg = (shot: Shot, width: string): string => {

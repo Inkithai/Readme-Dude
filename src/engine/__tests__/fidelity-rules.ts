@@ -283,4 +283,74 @@ export const FIDELITY_CASES: FidelityCase[] = [
       expect(html).not.toContain("${");
     },
   },
+  {
+    name: "a row of screenshots is a real table, not a markdown table",
+    type: "image",
+    props: {
+      layout: "columns",
+      columns: 2,
+      width: 480,
+      align: "center",
+      url: "",
+      text: "",
+      items: [
+        { url: "https://placehold.co/480x240.png", alt: "One", caption: "", link: "" },
+        { url: "https://placehold.co/481x240.png", alt: "Two", caption: "", link: "" },
+      ],
+    },
+    assert: (html) => {
+      expect(countTag(html, "table")).toBe(1);
+      expect(countTag(html, "td")).toBe(2);
+      expect(countTag(html, "img")).toBe(2);
+      expect(html).toContain('alt="One"');
+      // GFM pipe tables cannot span rows or hold block content, which is why
+      // the compiler reaches for HTML here; the assertion is that both renderers
+      // agree that HTML is a table.
+      expect(html).not.toContain("| One");
+    },
+  },
+  {
+    name: "an odd gallery row is padded so nothing stretches",
+    type: "image",
+    props: {
+      layout: "gallery",
+      columns: 2,
+      align: "center",
+      url: "",
+      text: "",
+      items: [
+        { url: "https://placehold.co/600x300.png", alt: "A", caption: "first", link: "" },
+        { url: "https://placehold.co/601x300.png", alt: "B", caption: "", link: "" },
+        { url: "https://placehold.co/602x300.png", alt: "C", caption: "third", link: "" },
+      ],
+    },
+    assert: (html) => {
+      expect(countTag(html, "tr")).toBe(2);
+      // 3 images + 1 empty cell: the padding is what stops the last card from
+      // becoming a banner across the page.
+      expect(countTag(html, "td")).toBe(4);
+      expect(html).toContain("<em>third</em>");
+    },
+  },
+  {
+    name: "split keeps image and prose in separate cells, top-aligned",
+    type: "image",
+    props: {
+      layout: "split",
+      columns: 2,
+      align: "center",
+      url: "https://placehold.co/640x360.png",
+      alt: "Shot",
+      caption: "",
+      linkUrl: "",
+      items: [],
+      text: "Three views, one **timeline**.",
+    },
+    assert: (html) => {
+      expect(countTag(html, "td")).toBe(2);
+      expect(html).toContain('valign="top"');
+      expect(html).toContain("<strong>timeline</strong>");
+      expect(html).toContain("<img");
+    },
+  },
 ];

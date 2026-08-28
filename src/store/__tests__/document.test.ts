@@ -160,4 +160,14 @@ describe("autosave storage namespace", () => {
     storage.set(LEGACY, payload);
     expect(parseDocumentJson(readAutosavePayload() ?? "").document.name).toBe("legacy doc");
   });
+
+  it("recovers a block whose props are not an object when it is edited", () => {
+    // `patchProps` writes raw, so it is also the path that meets a malformed
+    // block. Throwing here would strand the user: an onClick that fails is a
+    // dead panel, and the block would stay broken forever.
+    state().replaceBlocks([{ id: "broken", type: "text", hidden: false, props: null } as unknown as Block]);
+    expect(() => state().patchProps("broken", { body: "still editable" })).not.toThrow();
+    expect(prop(0, "body")).toBe("still editable");
+    expect(state().blocks[0]?.props).toBeTypeOf("object");
+  });
 });

@@ -278,6 +278,18 @@ describe("hero image", () => {
     expect(compile("hero", { imageUrl: "  " })).not.toContain("<img");
   });
 
+  it("clamps a logo width the way it clamps every other number", () => {
+    // `logoWidth` was the one width the compiler emitted raw, so a JSON file
+    // (or a slider pushed past the schema's max) could ship `width="99999"`.
+    expect(compile("hero", { logoUrl: "https://cdn.test/m.svg", logoWidth: 99999 })).toContain(
+      'width="1000"',
+    );
+    expect(compile("hero", { logoUrl: "https://cdn.test/m.svg", logoWidth: -4 })).toContain('width="96"');
+    expect(compile("hero", { logoUrl: "https://cdn.test/m.svg", logoWidth: "1e3" as unknown })).toContain(
+      'width="1000"',
+    );
+  });
+
   it("still counts as an image source for the checks", () => {
     const hero = block("hero", { imageUrl: "docs/shot.png" });
     const issues = validateDocument([hero], compileBlock(hero));

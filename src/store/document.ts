@@ -227,7 +227,16 @@ export const useDocument = create<DocumentStore>()(
         set((s: DocumentStore) => {
           const block = s.blocks.find((b) => b.id === id);
           if (!block) return;
-          Object.assign(block.props as unknown as Record<string, unknown>, patch);
+          const current = block.props;
+          const props =
+            typeof current === "object" && current !== null && !Array.isArray(current)
+              ? (current as unknown as Record<string, unknown>)
+              : {};
+          // Re-assigned first so the patch lands even when props was not an
+          // object at all — silently dropping the edit would be worse than the
+          // throw, and both are worse than an empty block the user can see.
+          block.props = props as typeof block.props;
+          Object.assign(props, patch);
         }),
 
       moveByIndex: (from, to) =>

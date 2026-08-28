@@ -7,6 +7,7 @@ import {
   compileBlock,
   createBlock,
   longestRun,
+  validateDocument,
 } from "@/engine";
 
 /* ------------------------------------------------------------------ *
@@ -91,6 +92,24 @@ describe("compiler totality", () => {
     const out = compile("hero", { title: "T", buttons: [{ label: "Docs", url: "javascript:alert(1)" }] });
     expect(out).not.toContain('href=""');
     expect(out).not.toContain("Docs");
+  });
+
+  it("survives props that are not an object at all", () => {
+    // `{ …, props: null }` is what a half-written merge or a `{}` slot in a
+    // pasted array produces. Reading a key off `null` used to throw for every
+    // one of the fifteen blocks — and because the Checks tab reads the same
+    // props on every render, one such block took the whole preview pane down,
+    // not just its own section.
+    for (const type of BLOCK_ORDER) {
+      for (const props of [null, undefined, 42, "text", [], true]) {
+        const block = { id: "b", type, hidden: false, props } as unknown as Block;
+        expect(compileBlock(block), `${type} with props=${JSON.stringify(props)}`).not.toContain(
+          CANNOT_COMPILE,
+        );
+        expect(() => validateDocument([block], "## anything")).not.toThrow();
+        expect(BLOCKS[type]).toBeTruthy();
+      }
+    }
   });
 
   it("picks a fence the body cannot close, whichever marker it chooses", () => {

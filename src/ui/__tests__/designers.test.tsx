@@ -59,6 +59,23 @@ describe("screenshot designer", () => {
     expect(options.slice(1).every((option) => option.getAttribute("aria-checked") === "false")).toBe(true);
   });
 
+  it("keeps the block image reachable while a row has no items", () => {
+    render(<App />);
+    add("image");
+    fireEvent.click(within(layoutGroup()).getByRole("radio", { name: /^2 columns/ }));
+    // The list starts empty and the promoted image lives in `items`, so this
+    // block shows the row field only when there is nothing to show instead.
+    expect(
+      within(layoutGroup())
+        .getByRole("radio", { name: /2 columns/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /Image 1 —/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0] as HTMLElement);
+    expect(prop("items")).toEqual([]);
+    expect(screen.getByLabelText(/Row image/)).toBeTruthy();
+  });
+
   it("turning a single image into a row carries the image across", () => {
     render(<App />);
     add("image");
@@ -98,7 +115,7 @@ describe("screenshot designer", () => {
     expect(md()).toContain('<td width="33%"');
   });
 
-  it("image + text puts the prose in the second cell", () => {
+  it("image + text puts the prose in the second cell", async () => {
     render(<App />);
     add("image");
     fireEvent.click(within(layoutGroup()).getByRole("radio", { name: /Image \+ text/ }));
@@ -107,6 +124,11 @@ describe("screenshot designer", () => {
     });
     expect(prop("layout")).toBe("split");
     expect(md()).toContain('<td width="45%" valign="top">');
+    // Rendered, not just emitted: the preview's sanitizer has its own
+    // allow-list, and a stripped `valign` is exactly how a pane that is meant
+    // to mirror github.com ends up lying about it.
+    fireEvent.click(screen.getByRole("tab", { name: /^Preview$/ }));
+    await waitFor(() => expect(document.querySelector('td[valign="top"]')).toBeTruthy(), { timeout: 4000 });
     // markdown is not parsed inside HTML, so the compiler converted it.
     expect(md()).toContain("one <strong>timeline</strong>");
   });
@@ -128,8 +150,12 @@ describe("screenshot designer", () => {
     render(<App />);
     add("image");
     fireEvent.change(screen.getByLabelText(/Image URL/), { target: { value: "https://cdn.test/ship.png" } });
-    const thumb = document.querySelector("figure img");
-    expect(thumb?.getAttribute("src")).toBe("https://cdn.test/ship.png");
+    // Queried by src rather than by markup shape: the thumb is a preview, and
+    // the assertion is about the URL it points at.
+    const thumb = Array.from(document.querySelectorAll("img")).find(
+      (img) => img.getAttribute("src") === "https://cdn.test/ship.png",
+    );
+    expect(thumb).toBeTruthy();
   });
 
   it("one ⌘Z undoes a layout change, content and all", () => {

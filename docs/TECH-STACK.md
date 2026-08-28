@@ -12,14 +12,14 @@ Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measu
 
 ---
 
-## 0. Status: what Phases 1–3 actually ship
+## 0. Status: what Phases 1–4 actually ship
 
 Phase 1 (the roadmap's “Core README builder”) and Phase 2 (the “GitHub Markdown
 engine”) are implemented, and Phase 3 (templates) is implemented as block compositions
 rather than Markdown files. 258 tests cover the engine, the presets, the golden
-fixtures, the store, preview fidelity and the mounted shell — plus 14 more that run
+fixtures, the store, preview fidelity and the mounted shell — plus 17 more that run
 against GitHub's own renderer when `GFM_FIDELITY=1` is set. Phase 3 added 62 of them,
-and Phase 4's first two designers 29 more (287 in total).
+Phase 4's two designers 29 more, and Phase 4's fuzz-driven audit 14 more (301 in total).
 
 | Roadmap Phase 1 item | Where it lives |
 | --- | --- |
@@ -188,6 +188,43 @@ second rendering path.
 Test note worth repeating: `validateDocument` short-circuits with `empty-document` when
 the Markdown is empty, so a test for "this block renders nothing" must put the block
 beside another one — otherwise it asserts the document-level error and learns nothing.
+
+
+### Audit — what a fuzz pass found after Phase 4
+
+The Phase 2 audit was hand-written: nine bugs, each with a test. This one started from the
+same list of suspects and then stopped trusting it — `engine/__tests__/invariants.test.ts`
+walks **every field of every block** and replaces it with junk (`null`, `"junk"`, `{}`,
+`[]`, `999999`, `NaN`, an `<img onerror>` payload, a 400-char string, an odd number of
+backticks), ~700 blocks in total, asserting five properties. Half the findings below were
+not on the suspect list; they are the ones the fuzz turned up on the first run.
+
+| bug | why it hid | the test |
+| --- | --- | --- |
+| **One malformed block took the whole preview pane down.** `validate.ts` read `block.props.items`, `.steps`, `.columns` directly; a `props: null` or `items: {}` threw out of `validateDocument`, which runs on every render. | the validator was only ever fed zod-clean blocks, and the per-block *compiler* hardening from the last audit never covered the checker that reports on it | `invariants` + `robustness` → "survives props that are not an object at all" |
+| **The compiler's totality contract had a hole exactly one level up.** `withProps` cast `block.props` and used it, so all fifteen blocks threw on a non-object `props` — the guard comment back in place of the user's section. | the last audit hardened *missing keys* (`p.foo` undefined), not a missing *object* | same |
+| **`patchProps` stranded a broken block.** `Object.assign(block.props, patch)` threw when `props` was not an object, so the one action that could repair a malformed block was the one that failed. | an onClick that throws looks like a dead button, not a data bug | `store` → "recovers a block whose props are not an object when it is edited" |
+| **`sanitizeUrl` encoded `"` but not `<`, `>` or a backtick**, so junk reached the exported README as `href="%22><img…>"` — inert under HTML5, and a problem for every tool after us, including our own `rehype-raw` pass. | the scheme test was the interesting part, so the encoding tail was never revisited | `escape` → "encodes the characters that could open markup inside an attribute" |
+| **The preview lied about the split layout**: `valign` was not in the sanitizer's allow-list for `td`, so text sat mid-cell in the pane whose job is to show what github.com will do. | the same failure mode as the alert bug two audits ago, and no compiler test could see it | `designers` → "image + text puts the prose in the second cell"; `FIDELITY_CASES` now pins all three screenshot layouts against **both** renderers |
+| **`hero.logoWidth` was emitted raw**: `width="${Number(p.logoWidth) \|\| 96}"`, so the slider's max and the schema's `max(1000)` were suggestions — a hand-edited `99999` shipped a README with a 99999-pixel logo. | every *other* width in the engine was clamped, which is how the invariant caught this one by contrast | `screenshots` → "clamps a logo width the way it clamps every other number" |
+| **Deleting the last image in a row silently resurrected the block-level one.** The compiler falls back to `url` while `items` is empty (that is what makes switching layout mid-edit safe), but the panel had no field for it: an empty list above a picture you could neither see nor remove. | a degrade path that is correct in the engine and misleading in the UI | `designers` → "keeps the block image reachable while a row has no items" |
+
+Two things about the method, because they are why it found anything:
+
+1. **Assert the breakout condition, not the scary substring.** The first draft banned
+   `onerror` from any output and failed on a percent-encoded URL that merely *spells* it —
+   theatre, not a safety property. What matters is "a field may not put a quote or an angle
+   bracket inside an attribute value", and that holds for every block.
+2. **Only the rules that can only be our fault.** Junk mutations paste half-written Markdown
+   into body fields on purpose, so `table-cells-dropped` and `img-not-self-closed` fire
+   correctly on *user* content. The invariant asserts the structural set — unbalanced tags,
+   fences, `<details>` swallowing the document — where a failure is always the compiler's.
+
+The oracle ran here, once: `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts` → 17 rules green
+against GitHub's renderer. Node's own TLS store rejects the sandbox's intercepting
+certificate while `curl` accepts it, which is how the missing `valign` was *confirmed*
+instead of argued about.
 
 ---
 

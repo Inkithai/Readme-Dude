@@ -90,6 +90,13 @@ const merge = (key: string, extra: string[]): string[] => [
  * GitHub-permissive sanitization: we allow the tags README authors actually
  * use (`<details>`, `<img align>`, `<p align>`, `<a name>`) while still
  * rejecting script-bearing markup from pasted content.
+ *
+ * Every attribute our *own compiler* emits belongs in this list, or the preview
+ * lies: `valign` was missing when `image` grew its side-by-side layout, so the
+ * pane that exists to show "this is what github.com will do" showed text
+ * centred in the cell instead of top-aligned. Same class as the alert bug in
+ * docs/TECH-STACK.md — a compiler change needs a sanitizer check, and only a
+ * test that renders catches it.
  */
 const schema = {
   ...defaultSchema,
@@ -140,8 +147,8 @@ const schema = {
     svg: merge("svg", ["viewBox", "width", "height", "fill", "role", "aria-hidden", "className"]),
     path: merge("path", ["d", "fill"]),
     blockquote: merge("blockquote", ["className"]),
-    td: merge("td", ["width", "align", "colspan", "rowspan"]),
-    th: merge("th", ["width", "align", "colspan", "rowspan"]),
+    td: merge("td", ["width", "align", "valign", "colspan", "rowspan"]),
+    th: merge("th", ["width", "align", "valign", "colspan", "rowspan"]),
     details: merge("details", ["open"]),
     code: merge("code", ["className"]),
     pre: merge("pre", ["className"]),

@@ -362,15 +362,27 @@ function ImagePanel({ block, set }: PanelProps<ImageBlock>) {
   const choice: ShotChoice =
     p.layout === "columns" ? (p.columns === 3 ? "three" : "two") : (p.layout as ShotChoice);
   const isRow = p.layout === "columns" || p.layout === "gallery";
+  // Defensive reads: the model is only schema-validated at the boundaries, so a
+  // hand-merged block can arrive with `items: undefined`, and a crash inside a
+  // property panel takes the whole editor with it.
+  const items = Array.isArray(p.items) ? p.items : [];
+  const leadUrl = String(p.url ?? "");
 
   /**
    * Switching layout must never cost you what you already typed: a block whose
    * single `url` is filled carries that image into the first slot of the row.
    */
   const promote = (): ShotItem[] =>
-    p.items.length > 0 || !p.url.trim()
-      ? p.items
-      : [{ url: p.url, alt: p.alt, caption: p.caption, link: p.linkUrl }];
+    items.length > 0 || !leadUrl.trim()
+      ? items
+      : [
+          {
+            url: leadUrl,
+            alt: String(p.alt ?? ""),
+            caption: String(p.caption ?? ""),
+            link: String(p.linkUrl ?? ""),
+          },
+        ];
 
   const pick = (next: ShotChoice) => {
     if (next === "two") set({ layout: "columns", columns: 2, items: promote() });
@@ -478,9 +490,19 @@ function ImagePanel({ block, set }: PanelProps<ImageBlock>) {
         </>
       ) : null}
 
+      {isRow && items.length === 0 ? (
+        // The list is empty, so the block-level image is what actually renders.
+        // Show it instead of an empty list sitting above a picture the user has
+        // no way to reach, edit, or understand.
+        <Field label="Row image" hint="the list is empty, so this image is what renders">
+          <TextInput value={leadUrl} onChange={(url) => set({ url })} mono placeholder="https://…" />
+          <ImageThumb url={leadUrl} height={56} />
+        </Field>
+      ) : null}
+
       {isRow || p.layout === "split" ? (
         <ListEditor
-          items={p.items}
+          items={items}
           onChange={(items) => set({ items })}
           create={emptyShot}
           singular="Image"
