@@ -20,7 +20,7 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 167 tests (engine, golden fixture, store, preview fidelity, shell)
+npm test           # 196 tests (engine totality, golden fixture, store, fidelity, shell)
 # GitHub's own renderer as an oracle (opt-in, needs network):
 #   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
@@ -46,6 +46,11 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 - **Escaping contract**: single-line label fields (headings, titles) are plain text
   and get Markdown-neutralised; multi-line bodies are Markdown and are never touched.
   `javascript:`/`data:`/control-character URLs are dropped, not escaped, and reported.
+- **The compiler degrades, it never throws**: every block type compiles with missing,
+  empty or junk-shaped fields (hand-edited JSON, a half-written import, a template that
+  forgot a key) — the guard suite is `src/engine/__tests__/robustness.test.ts`.
+- **Honest status**: a blocked clipboard and a failed `localStorage` write both say so
+  instead of showing green.
 - **Fidelity, tested twice**: one rule file (`src/engine/__tests__/fidelity-rules.ts`)
   is asserted against our own preview *and* against `POST /api.github.com/markdown` —
   GitHub's renderer. 14 rules, both suites green.

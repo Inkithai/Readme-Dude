@@ -50,3 +50,34 @@ describe("document (de)serialization", () => {
     expect(ids[1]).not.toBe(original.id); // a collision gets a new one
   });
 });
+
+describe("what counts as a document", () => {
+  it("rejects JSON that is merely an object", () => {
+    // package.json, tsconfig.json, a stray API response: all objects, none of
+    // them documents. Accepting them meant importJson() reported success after
+    // replacing the user's work with an empty document.
+    const result = parseDocument({ name: "my-pkg", version: "2.0.0", dependencies: { react: "*" } });
+    expect(result.document.blocks).toEqual([]);
+    expect(result.errors.join(" ")).toMatch(/no "blocks" array/);
+  });
+
+  it("accepts a real but empty document", () => {
+    const result = parseDocument({ version: 1, name: "blank", blocks: [] });
+    expect(result.errors).toEqual([]);
+    expect(result.dropped).toBe(0);
+  });
+
+  it("counts every rejected block when nothing survived", () => {
+    const result = parseDocument({ version: 1, name: "future", blocks: [{ type: "hero-v3" }, { type: 42 }] });
+    expect(result.dropped).toBe(2);
+    expect(result.errors.join(" ")).toMatch(/did not match the schema/);
+    expect(result.errors.join(" ")).toMatch(/rejected by the current schema/);
+  });
+
+  it("does not lose the blocks that did parse", () => {
+    const good = JSON.parse(serializeDocument("keep", [createBlock("heading")]));
+    const result = parseDocument({ version: 1, name: "mixed", blocks: [...good.blocks, { type: "nope" }] });
+    expect(result.document.blocks).toHaveLength(1);
+    expect(result.dropped).toBe(1);
+  });
+});

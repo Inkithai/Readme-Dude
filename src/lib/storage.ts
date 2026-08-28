@@ -18,12 +18,20 @@ export const storage = {
       return null;
     }
   },
-  set(key: string, value: string): void {
+  /**
+   * False means the bytes never landed (quota, private mode, disabled storage).
+   * The caller has to be able to tell — an autosave that reports "saved" after a
+   * failed write is worse than one that admits it, because the user closes the
+   * tab believing there is something to come back to.
+   */
+  set(key: string, value: string): boolean {
     try {
       if (backing) backing.setItem(key, value);
       else memory.set(key, value);
+      return true;
     } catch {
       /* quota / disabled storage: autosave is best-effort, never fatal */
+      return false;
     }
   },
   remove(key: string): void {

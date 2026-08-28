@@ -2,6 +2,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { type TemporalState, temporal } from "zundo";
 import { create, useStore } from "zustand";
 import { immer } from "zustand/middleware/immer";
+import { useShallow } from "zustand/react/shallow";
 import {
   type Block,
   type BlockType,
@@ -254,8 +255,11 @@ export const useDocument = create<DocumentStore>()(
 
       importJson: (text) => {
         const { document, dropped, errors } = parseDocumentJson(text);
-        if (document.blocks.length === 0 && errors.length > 0) {
-          return { ok: false, dropped, message: errors[0] };
+        if (document.blocks.length === 0 && (errors.length > 0 || dropped > 0)) {
+          // Either not a document at all, or a document from a newer schema
+          // whose blocks were all rejected. Both must stop before
+          // replaceBlocks() runs: "imported" would otherwise mean "erased".
+          return { ok: false, dropped, message: errors[0] ?? "no readable blocks in that file" };
         }
         get().replaceBlocks(document.blocks, document.name);
         return { ok: true, dropped };
@@ -278,7 +282,18 @@ export const useDocument = create<DocumentStore>()(
 /* ------------------------------ selectors ------------------------------ */
 
 export const useBlocks = (): Block[] => useDocument((s) => s.blocks);
-export const useVisibleBlocks = (): Block[] => useDocument((s) => s.blocks.filter((b) => !b.hidden));
+
+/*
+ * A selector that builds a new array or object on every call is a hang, not a
+ * slow render: zustand v5 hands the selector's result straight to
+ * `useSyncExternalStore`, which compares snapshots with `Object.is`, sees a new
+ * reference every time, and re-renders until React gives up with "Maximum update
+ * depth exceeded". `useShallow` is the fix — element-wise equality is exact here
+ * because immer keeps untouched blocks reference-identical. (Both hooks below
+ * were unused, so the trap was latent; anything that reached for them broke.)
+ */
+export const useVisibleBlocks = (): Block[] =>
+  useDocument(useShallow((s) => s.blocks.filter((b) => !b.hidden)));
 export const useBlock = (id: string | null): Block | null =>
   useDocument((s) => (id ? (s.blocks.find((b) => b.id === id) ?? null) : null));
 
@@ -302,10 +317,10 @@ export const useCanUndo = (): boolean =>
 export const useCanRedo = (): boolean =>
   useStore(useDocument.temporal, (s: HistoryState) => s.futureStates.length > 0);
 export const useHistoryDepth = (): { past: number; future: number } =>
-  useStore(useDocument.temporal, (s: HistoryState) => ({
-    past: s.pastStates.length,
-    future: s.futureStates.length,
-  }));
+  useStore(
+    useDocument.temporal,
+    useShallow((s: HistoryState) => ({ past: s.pastStates.length, future: s.futureStates.length })),
+  );
 
 /* -------------------------------- autosave -------------------------------- */
 
@@ -327,9 +342,14 @@ export function flushAutosave(): void {
   const payload = serializeDocument(name, blocks);
   if (payload === lastWritten) return;
   useDocument.setState({ saveStatus: "saving" });
-  storage.set(AUTOSAVE_KEY, payload);
+  if (!storage.set(AUTOSAVE_KEY, payload)) {
+    // The write failed (quota, or Safari private mode). `lastWritten` is left
+    // alone so the next edit retries instead of being told "no change".
+    useDocument.setState({ saveStatus: "unavailable" });
+    return;
+  }
   lastWritten = payload;
-  useDocument.setState({ saveStatus: storage.available ? "saved" : "unavailable", savedAt: Date.now() });
+  useDocument.setState({ saveStatus: "saved", savedAt: Date.now() });
 }
 
 useDocument.subscribe((state, previous) => {

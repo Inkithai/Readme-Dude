@@ -15,7 +15,7 @@ Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measu
 ## 0. Status: what Phases 1–2 actually ship
 
 Phase 1 (the roadmap's “Core README builder”) and Phase 2 (the “GitHub Markdown
-engine”) are implemented, with 167 tests covering the engine, the golden fixture, the
+engine”) are implemented, with 196 tests covering the engine, the golden fixture, the
 store, preview fidelity and the mounted shell — plus 14 more that run against GitHub's
 own renderer when `GFM_FIDELITY=1` is set.
 
@@ -71,7 +71,7 @@ now *specified*, which is a different job:
 | links / buttons | `links` block: pills and big buttons as shields.io images inside `<a>`, or pure-Markdown list/inline. Centring needs HTML, so `list`/`inline` are left-aligned on purpose — that tradeoff is a comment in `compileLinks`, not a bug. |
 | escaping | `escapeInlineMarkdown()` + the label-vs-body contract (§0 above). `_` and `[…]()` are deliberately not escaped; the reasoning is in the function's comment. |
 | URLs | `sanitizeUrl` now strips control characters before the scheme test (`java\0script:` no longer slips past), allow-lists `http/https/mailto/tel`, and drops `data:` because GitHub's camo proxy refuses it. |
-| validation | seven new rules: `url-dropped`, `link-without-url`, `unknown-alert-type`, `details-swallow`, `duplicate-anchor`, `heading-skip`, `empty-link-target`, `unbalanced-strong`. |
+| validation | ten rules added across Phase 2 and the audit: `url-dropped`, `link-without-url` (links *and* hero buttons), `unknown-alert-type`, `details-swallow`, `duplicate-anchor`, `heading-skip`, `empty-link-target`, `unbalanced-strong`, `table-cells-dropped`, plus the “not a document” rejection in `engine/io.ts`. |
 | fidelity | `fidelity-rules.ts` — one set of assertions, run against **our preview** and against **GitHub's renderer** (`/api.github.com/markdown`). |
 
 Two findings worth keeping, because both are the kind that hides:
@@ -93,6 +93,28 @@ The oracle is opt-in rather than always-on: CI should not need the network, GitH
 unauthenticated limit is per IP, and behind a TLS-terminating proxy Node needs
 `NODE_EXTRA_CA_CERTS`. A request that cannot be made **skips**; it does not fail red,
 because a red network test in a locked-down sandbox trains everyone to ignore the suite.
+
+### Audit — what a bug hunt found after Phase 2
+
+Nine real bugs, each with a test that used to pass. Ordered by how badly they failed:
+
+| bug | why it hid | the test |
+| --- | --- | --- |
+| **Importing `package.json` erased the document.** `parseDocument` treated “no `blocks` key” as “zero blocks”, and `importJson` only refused when an *error* had been recorded — so a valid object with no blocks was a success that replaced the user's work with nothing. | the permissive-by-block loader was designed to never reject a file; it needed to reject *non-documents* | `store-dom` → “refuses a JSON file that is not a document” |
+| **Autosave reported “saved” after the write threw.** `storage.set` swallowed quota/private-mode errors and returned nothing, so the status pill turned green on an empty localStorage. | the swallow was correct for the app and wrong for the caller: the boolean had to come back up | `store-dom` → “does not claim the document was saved” |
+| **`useVisibleBlocks` / `useHistoryDepth` were render-loop landmines.** A selector that returns a fresh array/object makes `useSyncExternalStore` compare unequal snapshots forever → “Maximum update depth exceeded”. Both were unused, so nothing had tripped them yet. | only visible once React is in the room; the store suite runs in node | `store-dom` → “do not send React into a render loop” |
+| **13 of 15 block types threw** on a missing prop, turning the user's section into `<!-- could not compile -->`. Now the escape helpers are total (see `engine/escape.ts` header) and the item loops guard too — which is what Phase 3's hand-authored templates and the Markdown importer need. | `createBlock` and JSON import both run through Zod, so app-authored documents never have holes; `patchProps`, `insertBlock` and `replaceBlocks` do not re-validate | `engine/__tests__/robustness.test.ts` |
+| **A code fence could be closed by its own content.** `fenceFor` grew for backticks but emitted a fixed `~~~~~`, so a body with ≥5 tildes broke out and the rest of the README turned into prose. | only reachable with both markers in one sample | “always outgrows the body for the marker it actually chose” |
+| **Hero buttons with a rejected URL rendered `<a href="">`.** Verified on GitHub: a clickable nothing wrapped around the badge. `links` already dropped them; hero did not. | the two blocks had drifted apart | “drops a hero button whose URL was refused” |
+| **`⌘⌫` / `⌥⌫` deleted the selected block, `⌘H` hid it.** macOS uses those for delete-to-line-start and delete-word. | no test ever pressed a modified key | “ignores destructive shortcuts that carry a modifier” |
+| **Copy failure was silent.** `copyToClipboard` returns a boolean and both call sites ignored the false, so a blocked clipboard looked like a successful copy. | the fallback path (`execCommand`) doesn't exist in jsdom, so nothing exercised it | “says so when the clipboard refuses the copy” |
+| **The Markdown tab rendered `# empty README` as the document.** A select-all there shipped a fake line; and an `escapeTableCell` newline rule put a stray `<br>` at the head of a cell. | the tab's job is to show the *bytes* — a placeholder belongs outside the `<pre>` | “shows an honest empty state” |
+
+Two near-misses worth recording, because the fix looked obvious and was wrong:
+`sanitizeUrl` does **not** need to encode `(` `)` (markdown-it balances parens — `[x](https://en.wikipedia.org/wiki/Foo_(bar))` resolves correctly on GitHub), and
+relative image paths that walk up a directory (`../docs/img.png`) **are** reachable, so
+`isProbablyImageUrl` was widened instead of the new error being kept. Both were settled by
+asking GitHub's renderer rather than reasoning about it.
 
 ---
 
@@ -442,7 +464,7 @@ Aligned with roadmap §9 ("What I would NOT build initially"):
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 167 tests: engine, golden fixture, store, preview fidelity, shell
+npm test           # 196 tests: engine, golden fixture, store, preview fidelity, shell
 GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
                    # +14 tests against GitHub's own renderer (needs network; behind a TLS
                    #   proxy add NODE_EXTRA_CA_CERTS=/path/to/proxy-ca.crt)

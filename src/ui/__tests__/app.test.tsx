@@ -193,6 +193,44 @@ describe("ReadMe Buddy shell", () => {
     expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
   });
 
+  it("ignores destructive shortcuts that carry a modifier", () => {
+    render(<App />);
+    const id = state().addBlock("text");
+    act(() => state().select(id));
+    // macOS binds ⌘⌫ to "delete to start of line" and ⌥⌫ to "delete word".
+    // Neither means "remove this block", and both used to do exactly that.
+    fireEvent.keyDown(window, { key: "Backspace", metaKey: true });
+    fireEvent.keyDown(window, { key: "Backspace", altKey: true });
+    expect(state().blocks).toHaveLength(1);
+    fireEvent.keyDown(window, { key: "h", metaKey: true });
+    fireEvent.keyDown(window, { key: "h", altKey: true });
+    expect(state().blocks[0]?.hidden).toBe(false);
+    // Bare keys still work, which is the point of a guard rather than a ban.
+    fireEvent.keyDown(window, { key: "h" });
+    expect(state().blocks[0]?.hidden).toBe(true);
+    fireEvent.keyDown(window, { key: "Backspace" });
+    expect(state().blocks).toHaveLength(0);
+  });
+
+  it("says so when the clipboard refuses the copy", async () => {
+    // jsdom has neither navigator.clipboard nor document.execCommand, which is
+    // the failing case: the button used to sit there looking idle while nothing
+    // was copied, and the user pasted whatever was already on the clipboard.
+    act(() => state().addBlock("heading"));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Copy Markdown/ }));
+    expect(await screen.findByText(/Blocked/)).toBeTruthy();
+  });
+
+  it("shows an honest empty state instead of placeholder text in the Markdown tab", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: /Markdown/ }));
+    // The old code rendered "# empty README" *as* the document body, and a
+    // select-all here would have shipped that line.
+    expect(screen.getByText(/no Markdown yet/i)).toBeTruthy();
+    expect(screen.queryByText(/empty README/)).toBeNull();
+  });
+
   it("keeps the three panes present on wide viewports", () => {
     render(<App />);
     expect(screen.getByRole("navigation", { name: "Block palette" })).toBeTruthy();

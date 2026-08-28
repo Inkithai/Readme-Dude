@@ -25,10 +25,23 @@ export function parseDocument(raw: unknown): ParseResult {
     return { document: fallback, dropped: 0, errors: ["not a document object"] };
   }
   const source = raw as Record<string, unknown>;
-  const rawBlocks = Array.isArray(source.blocks) ? source.blocks : [];
+  const rawBlocks = Array.isArray(source.blocks) ? source.blocks : null;
+  if (rawBlocks === null) {
+    // Distinct from "a document whose blocks array is empty": that is a real
+    // (if empty) export and imports fine. An object with no `blocks` key at all
+    // is some other file — package.json, a tsconfig, a pasted array of blocks —
+    // and accepting it meant reporting success while replacing the user's
+    // document with nothing.
+    return {
+      document: fallback,
+      dropped: 0,
+      errors: ['no "blocks" array — this JSON is not a ReadMe Buddy document'],
+    };
+  }
+  const blocksIn = rawBlocks;
   const blocks: Block[] = [];
   let dropped = 0;
-  rawBlocks.forEach((candidate, i) => {
+  blocksIn.forEach((candidate, i) => {
     const result = BlockSchema.safeParse(candidate);
     if (result.success) blocks.push(result.data);
     else {
@@ -41,6 +54,11 @@ export function parseDocument(raw: unknown): ParseResult {
     }
   });
   const nameResult = DocumentSchema.safeParse({ version: 1, name: source.name ?? "untitled", blocks });
+  if (blocks.length === 0 && blocksIn.length > 0) {
+    errors.push(
+      `${blocksIn.length} block(s) were rejected by the current schema — the file may come from a newer version`,
+    );
+  }
   if (!nameResult.success) {
     return { document: { ...fallback, blocks }, dropped, errors: [...errors, "document name coerced"] };
   }

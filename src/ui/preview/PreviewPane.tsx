@@ -86,6 +86,7 @@ export function PreviewPane({ markdown }: { markdown: string }) {
   const [colorMode, setColorMode] = useState<"light" | "dark">("light");
   const [width, setWidth] = useState<Width>("fill");
   const [copied, setCopied] = useState(false);
+  const [copyBlocked, setCopyBlocked] = useState(false);
 
   const issues = useMemo(() => validateDocument(blocks, markdown), [blocks, markdown]);
   const counts = useMemo(() => summarizeIssues(issues), [issues]);
@@ -176,13 +177,16 @@ export function PreviewPane({ markdown }: { markdown: string }) {
               size="xs"
               variant="outline"
               onClick={async () => {
-                if (await copyToClipboard(markdown)) {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1400);
-                }
+                const ok = await copyToClipboard(markdown);
+                setCopied(ok);
+                setCopyBlocked(!ok);
+                setTimeout(() => {
+                  setCopied(false);
+                  setCopyBlocked(false);
+                }, 1600);
               }}
             >
-              <Copy size={12} /> {copied ? "Copied" : "Copy"}
+              <Copy size={12} /> {copied ? "Copied" : copyBlocked ? "Copy blocked" : "Copy"}
             </Btn>
           ) : null}
         </div>
@@ -209,9 +213,18 @@ export function PreviewPane({ markdown }: { markdown: string }) {
         ) : null}
 
         {tab === "markdown" ? (
-          <pre className="min-h-full p-3 font-mono text-[11.5px] leading-[1.65] whitespace-pre text-zinc-300">
-            {markdown || "# empty README\n"}
-          </pre>
+          // Never show placeholder text *as* the document: this pane is the one
+          // place users check what they are about to ship, and a fake `# empty
+          // README` line would be copied, selected and pasted like a real one.
+          markdown ? (
+            <pre className="min-h-full p-3 font-mono text-[11.5px] leading-[1.65] whitespace-pre text-zinc-300">
+              {markdown}
+            </pre>
+          ) : (
+            <p className="p-6 text-center text-[12px] text-zinc-600">
+              This document has no Markdown yet — add a block, or un-hide hidden ones.
+            </p>
+          )
         ) : null}
 
         {tab === "issues" ? (

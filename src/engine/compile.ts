@@ -86,7 +86,7 @@ export function inlineMarkdownToHtml(input: string): string {
   return out;
 }
 
-const nl = (value: string): string => normalizeLines(value).trim();
+const nl = (value: string | null | undefined): string => normalizeLines(value).trim();
 
 /**
  * Optional string fields can be absent — a document hand-edited in JSON, or one
@@ -95,14 +95,16 @@ const nl = (value: string): string => normalizeLines(value).trim();
  * block with an HTML comment in the user's README.
  */
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
-const safeUrl = (value: string): string => sanitizeUrl(value);
+/** Same guard for the array fields a half-authored block may leave out entirely. */
+const list = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+const safeUrl = (value: string | null | undefined): string => sanitizeUrl(value);
 
 /**
  * Label fields (headings, section titles, list-item titles) are plain text, so
  * Markdown syntax in them is neutralised. Bodies are never passed here — they
  * are Markdown by contract. See escapeInlineMarkdown for what is left alone.
  */
-const label = (value: string): string => escapeInlineMarkdown(nl(value));
+const label = (value: string | null | undefined): string => escapeInlineMarkdown(nl(value));
 
 /* ------------------------------- blocks ------------------------------- */
 
@@ -122,19 +124,21 @@ function compileHero(block: Block): string {
   lines.push(`  <h1>${escapeHtml(nl(p.title as string))}</h1>`, "");
   const subtitle = nl(p.subtitle as string);
   if (subtitle) lines.push(`  <p>${inlineMarkdownToHtml(subtitle).replace(/\n/g, "<br />")}</p>`, "");
-  const buttons = (p.buttons ?? []) as { label: string; url: string }[];
-  if (buttons.length) {
-    for (const b of buttons) {
-      const href = safeUrl(b.url);
-      const img = shieldsUrl({
-        label: b.label,
-        message: "→",
-        color: "2ea44f",
-        style: "for-the-badge",
-      });
-      lines.push(`  <a href="${href}"><img src="${img}" alt="${escapeHtml(b.label)}" /></a>`);
-    }
-    lines.push("");
+  const buttons = list<{ label?: string; url?: string }>(p.buttons);
+  const rendered = [];
+  for (const b of buttons) {
+    const href = safeUrl(str(b.url));
+    if (!href) continue; // same rule as compileLinks: a dead button is worse than none
+    const img = shieldsUrl({
+      label: str(b.label),
+      message: "→",
+      color: "2ea44f",
+      style: "for-the-badge",
+    });
+    rendered.push(`  <a href="${href}"><img src="${img}" alt="${escapeHtml(str(b.label))}" /></a>`);
+  }
+  if (rendered.length) {
+    lines.push(...rendered, "");
   }
   lines.push("</div>");
   return lines.join("\n");
@@ -152,13 +156,18 @@ function compileText(block: Block): string {
   const body = normalizeLines(p.body as string).trim();
   if (!body) return "";
   if (p.variant === "quote") return prefixLines(body, "> ");
-  if (p.variant === "alert") return `> [!${p.alertType}]\n${prefixLines(body, "> ")}`;
+  if (p.variant === "alert") {
+    // A half-filled block (JSON by hand, or a template that forgot the field)
+    // must not print a literal `[!undefined]`, which GitHub renders as text.
+    const kind = str(p.alertType).trim().toUpperCase() || "NOTE";
+    return `> [!${kind}]\n${prefixLines(body, "> ")}`;
+  }
   return body;
 }
 
 function compileFeatures(block: Block): string {
   const p = withProps(block, "features");
-  const items = (p.items ?? []) as { icon: string; title: string; body: string }[];
+  const items = list<{ icon?: string; title?: string; body?: string }>(p.items);
   const out: string[] = [];
   const title = label(p.title as string);
   if (p.showTitle && title) out.push(`## ${title}`, "");
@@ -167,9 +176,9 @@ function compileFeatures(block: Block): string {
   const layout = p.layout as string;
   if (layout === "bullets" || layout === "numbered" || layout === "icon-text") {
     const list = items.map((item, i) => {
-      const icon = item.icon.trim();
+      const icon = str(item.icon).trim();
       const head = icon.length > 0 ? `${icon} **${label(item.title)}**` : `**${label(item.title)}**`;
-      const body = item.body.trim();
+      const body = str(item.body).trim();
       const bullet = layout === "numbered" ? `${i + 1}.` : "-";
       if (layout === "icon-text" && body)
         return `${bullet} ${head}<br />${" ".repeat(bullet.length + 1)}${body}`;
@@ -184,9 +193,9 @@ function compileFeatures(block: Block): string {
   const perRow = layout === "cards-2" ? 2 : 3;
   const width = `${Math.floor(100 / perRow)}%`;
 
-  const renderCard = (item: { icon: string; title: string; body: string }): string => {
-    const icon = item.icon.trim();
-    const body = inlineMarkdownToHtml(item.body.trim()).replace(/\n/g, "<br />");
+  const renderCard = (item: { icon?: string; title?: string; body?: string }): string => {
+    const icon = str(item.icon).trim();
+    const body = inlineMarkdownToHtml(str(item.body).trim()).replace(/\n/g, "<br />");
     return [
       `<td width="${width}" align="center">`,
       "  <p>",
@@ -219,6 +228,8 @@ function compileImage(block: Block): string {
   const src = safeUrl(p.url as string);
   if (!src) return "";
   const alt = escapeHtml(nl(p.alt as string) || "Image");
+  // Caption is body-Markdown, so it is not label()-escaped — but *emphasis
+  // wrapping* it needs the caption itself to be non-empty (below).
   const width = Number(p.width) > 0 ? ` width="${Math.min(2400, Number(p.width))}"` : "";
   const img = `<img src="${src}" alt="${alt}"${width} />`;
   const link = safeUrl(p.linkUrl as string);
@@ -234,24 +245,28 @@ function compileCode(block: Block): string {
   const body = dedent(normalizeLines((p.body as string) ?? ""));
   const fence = fenceFor(body);
   const lang = nl(p.language as string).replace(/[^\w+#.-]/g, "");
-  const filename = nl(p.filename as string);
+  // Backticks stripped: a filename is inline code by construction, so a stray
+  // one in the field would split the span in two.
+  const filename = nl(p.filename as string)
+    .replace(/`/g, "")
+    .trim();
   const head = filename ? `\`${filename}\`\n\n` : "";
   return `${head}${fence}${lang}\n${body}\n${fence}`;
 }
 
 function compileTable(block: Block): string {
   const p = withProps(block, "table");
-  const columns = (p.columns ?? []) as string[];
-  const rows = (p.rows ?? []) as string[][];
-  const align = (p.alignment ?? []) as ("left" | "center" | "right")[];
+  const columns = list<string>(p.columns);
+  const rows = list<(string | null | undefined)[]>(p.rows);
+  const align = list<"left" | "center" | "right">(p.alignment);
   if (columns.length === 0) return "";
 
   const title = label(p.title as string);
   const out: string[] = [];
   if (title) out.push(`### ${title}`, "");
 
-  const cells = (values: string[]): string[] =>
-    Array.from({ length: columns.length }, (_, i) => escapeTableCell(values[i] ?? ""));
+  const cells = (values: (string | null | undefined)[]): string[] =>
+    Array.from({ length: columns.length }, (_, i) => escapeTableCell(str(values[i])));
 
   out.push(`| ${cells(columns).join(" | ")} |`);
   out.push(
@@ -261,7 +276,7 @@ function compileTable(block: Block): string {
     }).join(" | ")} |`,
   );
   for (const row of rows) {
-    if (row.every((c) => c.trim() === "")) continue;
+    if (row.every((c) => str(c).trim() === "")) continue;
     out.push(`| ${cells(row).join(" | ")} |`);
   }
   return out.join("\n");
@@ -269,17 +284,17 @@ function compileTable(block: Block): string {
 
 function compileBadges(block: Block): string {
   const p = withProps(block, "badges");
-  const items = (p.items ?? []) as { alt: string; imageUrl: string; linkUrl: string }[];
+  const items = list<{ alt?: string; imageUrl?: string; linkUrl?: string }>(p.items);
   const out: string[] = [];
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   if (items.length === 0) return out.join("\n");
 
   const rendered = items.map((item) => {
-    const src = safeUrl(item.imageUrl);
+    const src = safeUrl(str(item.imageUrl));
     if (!src) return "";
-    const img = `<img src="${src}" alt="${escapeHtml(item.alt || "badge")}" />`;
-    const link = safeUrl(item.linkUrl);
+    const img = `<img src="${src}" alt="${escapeHtml(str(item.alt) || "badge")}" />`;
+    const link = safeUrl(str(item.linkUrl));
     return link ? `<a href="${link}">${img}</a>` : img;
   });
   const kept = rendered.filter(Boolean);
@@ -294,10 +309,13 @@ function compileBadges(block: Block): string {
 }
 
 function techBadgeUrl(name: string, slug: string, hex: string, style: string): string {
+  // `name` is the only one of these that can be empty (a template that lists a
+  // technology by name only), and shields needs *something* to render.
+  const text = name.trim() || "tech";
   // Single-text badge: `badge/<name>-<brandHex>` is shields' message+colour
   // form, i.e. the name on a brand-coloured background with a white logo.
   return shieldsUrl({
-    message: name,
+    message: text,
     color: hex.replace(/^#/, "") || "0f172a",
     style,
     logo: slug || undefined,
@@ -305,24 +323,27 @@ function techBadgeUrl(name: string, slug: string, hex: string, style: string): s
   });
 }
 
-function techHtmlRow(items: { name: string; slug: string; hex: string }[], style: string): string {
+function techHtmlRow(items: { name?: string; slug?: string; hex?: string }[], style: string): string {
   const imgs = items.map((item) => {
-    const url = techBadgeUrl(item.name, item.slug, item.hex, style);
-    return `  <img src="${url}" alt="${escapeHtml(item.name)}" />`;
+    const url = techBadgeUrl(str(item.name), str(item.slug), str(item.hex), style);
+    return `  <img src="${url}" alt="${escapeHtml(str(item.name))}" />`;
   });
   return [`<p align="center">`, ...imgs, "</p>"].join("\n");
 }
 
 function compileTechStack(block: Block): string {
   const p = withProps(block, "techstack");
-  const groups = (p.groups ?? []) as {
-    category: string;
-    items: { name: string; slug: string; hex: string }[];
-  }[];
+  const groups = list<{ category?: string; items?: { name?: string; slug?: string; hex?: string }[] }>(
+    p.groups,
+  ).map((g) => ({
+    ...g,
+    items: list<{ name?: string }>(g.items),
+  }));
   const out: string[] = [];
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   const nonEmpty = groups.filter((g) => g.items.length > 0);
+  const nameOf = (value: unknown): string => str(value).trim() || "Untitled";
   if (nonEmpty.length === 0) return out.join("\n");
 
   const variant = p.variant as string;
@@ -330,7 +351,9 @@ function compileTechStack(block: Block): string {
   if (variant === "list") {
     out.push(
       nonEmpty
-        .map((g) => `- **${g.category.trim() || "General"}:** ${g.items.map((i) => i.name).join(", ")}`)
+        .map(
+          (g) => `- **${label(g.category) || "General"}:** ${g.items.map((i) => nameOf(i.name)).join(", ")}`,
+        )
         .join("\n"),
     );
     return out.join("\n");
@@ -340,7 +363,7 @@ function compileTechStack(block: Block): string {
     out.push("| Category | Technologies |", "| --- | --- |");
     for (const g of nonEmpty) {
       out.push(
-        `| ${escapeTableCell(g.category || "General")} | ${escapeTableCell(g.items.map((i) => i.name).join(", "))} |`,
+        `| ${escapeTableCell(str(g.category) || "General")} | ${escapeTableCell(g.items.map((i) => nameOf(i.name)).join(", "))} |`,
       );
     }
     return out.join("\n");
@@ -348,7 +371,7 @@ function compileTechStack(block: Block): string {
 
   if (variant === "grouped") {
     const sections = nonEmpty.map((g) =>
-      [`### ${g.category.trim() || "General"}`, "", techHtmlRow(g.items, p.style as string)].join("\n"),
+      [`### ${label(g.category) || "General"}`, "", techHtmlRow(g.items, p.style as string)].join("\n"),
     );
     out.push(sections.join("\n\n"));
     return out.join("\n");
@@ -368,6 +391,8 @@ function stepBlock(
   language: string,
 ): string {
   const parts: string[] = [];
+  // label(): a `*` or `_`_ in a step title would otherwise flip the bold off
+  // and leak the marker into the README.
   const heading = index === null ? `**${title}**` : `**${index}. ${title}**`;
   parts.push(heading);
   const text = normalizeLines(body).trim();
@@ -385,7 +410,9 @@ function stepBlock(
 
 function compileInstallation(block: Block): string {
   const p = withProps(block, "installation");
-  const steps = (p.steps ?? []) as { title: string; body: string; code: string; language: string }[];
+  const steps = list<{ title?: string; body?: string; code?: string; language?: string }>(p.steps).map(
+    (s) => ({ title: str(s.title), body: str(s.body), code: str(s.code), language: str(s.language) }),
+  );
   const out: string[] = [];
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
@@ -395,7 +422,7 @@ function compileInstallation(block: Block): string {
   // nested inside `1.` needs 4-space indentation to stay in the item, which
   // is exactly the kind of thing users (and copy-paste) break.
   const body = steps.map((s, i) =>
-    stepBlock(s.title, steps.length > 1 ? i + 1 : null, s.body, s.code, s.language),
+    stepBlock(label(s.title), steps.length > 1 ? i + 1 : null, s.body, s.code, s.language),
   );
   if (body.length) out.push(body.join("\n\n"));
   return out.join("\n");
@@ -403,7 +430,9 @@ function compileInstallation(block: Block): string {
 
 function compileUsage(block: Block): string {
   const p = withProps(block, "usage");
-  const examples = (p.examples ?? []) as { title: string; body: string; code: string; language: string }[];
+  const examples = list<{ title?: string; body?: string; code?: string; language?: string }>(p.examples).map(
+    (e) => ({ title: str(e.title), body: str(e.body), code: str(e.code), language: str(e.language) }),
+  );
   const out: string[] = [];
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
@@ -411,8 +440,10 @@ function compileUsage(block: Block): string {
   if (intro) out.push(intro, "");
   const body = examples.map((e) => {
     const parts: string[] = [];
-    const t = e.title.trim();
-    if (t) parts.push(/^#{1,6}\s/.test(t) ? t : `### ${t}`);
+    const t = str(e.title).trim();
+    // A heading the user typed themselves keeps its own markup; one we add the
+    // `###` to is a label, so it gets the label treatment.
+    if (t) parts.push(/^#{1,6}\s/.test(t) ? t : `### ${label(t)}`);
     const text = normalizeLines(e.body).trim();
     if (text) parts.push(text);
     const snippet = dedent(normalizeLines(e.code).trim());
@@ -435,11 +466,12 @@ function compileLicense(block: Block): string {
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   let notice = normalizeLines(p.notice as string).trim();
+  const canAppend = notice.length > 0;
   notice = notice
     .replace(/\$\{year\}/g, (p.year as string) || String(new Date().getFullYear()))
     .replace(/\$\{author\}/g, (p.author as string) || "the authors");
   const link = safeUrl(p.url as string);
-  if (link && !/\[[^\]]+\]\([^)]+\)/.test(notice)) {
+  if (link && canAppend && !/\[[^\]]+\]\([^)]+\)/.test(notice)) {
     notice = `${notice.replace(/\.$/, "")} See [${title || "LICENSE"}](${link}) for more information.`;
   }
   if (notice) out.push(notice);
@@ -461,7 +493,7 @@ function compileCollapsible(block: Block): string {
 
 function compileChecklist(block: Block): string {
   const p = withProps(block, "checklist");
-  const items = (p.items ?? []) as Partial<{ text: string; done: boolean; note: string }>[];
+  const items = list<Partial<{ text: string; done: boolean; note: string }>>(p.items);
   const out: string[] = [];
   const title = label(str(p.title));
   if (p.showTitle && title) out.push(`## ${title}`, "");
@@ -493,7 +525,7 @@ function compileChecklist(block: Block): string {
 
 function compileLinks(block: Block): string {
   const p = withProps(block, "links");
-  const raw = (p.items ?? []) as Partial<{ label: string; url: string; icon: string; description: string }>[];
+  const raw = list<Partial<{ label: string; url: string; icon: string; description: string }>>(p.items);
   const out: string[] = [];
   const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");

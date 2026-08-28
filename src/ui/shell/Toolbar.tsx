@@ -83,6 +83,7 @@ export function Toolbar({
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
   const [copied, setCopied] = useState(false);
+  const [copyBlocked, setCopyBlocked] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -103,7 +104,7 @@ export function Toolbar({
           ReadMe <span className="text-indigo-300">Buddy</span>
         </span>
         <span className="hidden rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-zinc-500 uppercase lg:inline">
-          phase 1
+          phase 2
         </span>
       </div>
 
@@ -233,14 +234,20 @@ export function Toolbar({
           title="Copy the Markdown to your clipboard"
           onClick={async () => {
             flushAutosave();
-            if (await copyToClipboard(markdown)) {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1600);
-            }
+            const ok = await copyToClipboard(markdown);
+            // Clipboard writes fail silently for real reasons (http origin,
+            // permissions, Safari focus rules). Saying nothing is the worst
+            // outcome: the user pastes whatever was on the clipboard before.
+            setCopied(ok);
+            setCopyBlocked(!ok);
+            setTimeout(() => {
+              setCopied(false);
+              setCopyBlocked(false);
+            }, 1800);
           }}
         >
           {copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
-          {copied ? "Copied" : "Copy Markdown"}
+          {copied ? "Copied" : copyBlocked ? "Blocked — use Markdown tab" : "Copy Markdown"}
         </Btn>
       </div>
     </header>

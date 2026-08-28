@@ -39,6 +39,13 @@ const isTypingTarget = (target: EventTarget | null): boolean => {
   return /^(input|textarea|select)$/.test(target.tagName.toLowerCase());
 };
 
+/**
+ * True when no modifier is held. Destructive canvas shortcuts are bare-only:
+ * ⌘⌫ is "delete to start of line" and ⌥⌫ is "delete word" on macOS, and a
+ * ⌘H/⌥H typed while a block happens to be selected must not quietly hide it.
+ */
+const isBare = (event: KeyboardEvent): boolean => !event.metaKey && !event.ctrlKey && !event.altKey;
+
 export default function App() {
   const blocks = useDocument((s) => s.blocks);
   const handleDrop = useDocument((s) => s.handleDrop);
@@ -135,7 +142,7 @@ export default function App() {
       }
       if (isTypingTarget(event.target)) return;
 
-      if ((event.key === "Backspace" || event.key === "Delete") && state.selectedId) {
+      if ((event.key === "Backspace" || event.key === "Delete") && isBare(event) && state.selectedId) {
         event.preventDefault();
         state.removeBlock(state.selectedId);
         return;
@@ -152,7 +159,7 @@ export default function App() {
         state.moveByIndex(from, from + (event.key === "ArrowUp" ? -1 : 1));
         return;
       }
-      if (key === "h" && state.selectedId) {
+      if (key === "h" && isBare(event) && state.selectedId) {
         event.preventDefault();
         state.toggleHidden(state.selectedId);
         return;

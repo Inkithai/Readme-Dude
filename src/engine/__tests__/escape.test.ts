@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   dedent,
   escapeHtml,
+  escapeInlineMarkdown,
   escapeTableCell,
   fenceFor,
   isProbablyImageUrl,
+  longestRun,
   normalizeLines,
   prefixLines,
   sanitizeUrl,
@@ -20,8 +22,28 @@ describe("fenceFor", () => {
     expect(fenceFor("```\ncode\n```")).toBe("````");
   });
 
-  it("switches to tildes once backticks cannot win", () => {
-    expect(fenceFor("`````````` code")).toBe("~".repeat(11));
+  it("switches to tildes once a backtick fence would have to be huge", () => {
+    // Any fence longer than the body's own runs is correct, so the shorter one
+    // wins; 11 backticks in a README is just noise.
+    expect(fenceFor("`````````` code")).toBe("~~~");
+  });
+
+  it("always outgrows the body for the marker it actually chose", () => {
+    // The old implementation grew for backticks but emitted a fixed-width tilde
+    // fence, so a body full of tildes closed its own fence and the rest of the
+    // file turned into prose.
+    const bodies = [
+      "`````````` code",
+      "~~~~~~\n````\n~~~~~~",
+      `${"`".repeat(15)}x${"~".repeat(9)}`,
+      "~~~ ``` ~~~ ``` ~~~",
+      "",
+    ];
+    for (const body of bodies) {
+      const fence = fenceFor(body);
+      expect(fence.length).toBeGreaterThan(longestRun(body, fence[0] as "`" | "~"));
+      expect(fence).toMatch(/^[`~]{3,}$/);
+    }
   });
 });
 
@@ -90,5 +112,51 @@ describe("normalizeLines / prefixLines / tidyDocument", () => {
     expect(isProbablyImageUrl("./docs/a.png")).toBe(true);
     expect(isProbablyImageUrl("docs/a.png")).toBe(false);
     expect(isProbablyImageUrl("")).toBe(false);
+  });
+});
+
+describe("table cells cannot contain newlines", () => {
+  it("does not open a cell with a stray <br>", () => {
+    // The old filter kept an empty line at index 0, so a pasted cell that
+    // started with a newline rendered a break before the first word.
+    expect(escapeTableCell("\nInstall")).toBe("Install");
+    expect(escapeTableCell("a\n\n\nb")).toBe("a<br>b");
+    expect(escapeTableCell("")).toBe("");
+    expect(escapeTableCell(null as unknown as string)).toBe("");
+  });
+});
+
+describe("dollar signs in labels", () => {
+  it("escapes a pair so GitHub does not open a math span", () => {
+    expect(escapeInlineMarkdown("$PATH and $HOME")).toBe("\\$PATH and \\$HOME");
+  });
+
+  it("does not escape the same dollar twice", () => {
+    // The count and the replacement must agree about what "already escaped"
+    // means: `\$(?<!\\)` looks behind at the dollar *itself*, which is never a
+    // backslash, so every dollar counted and an escaped one came out doubled.
+    const out = escapeInlineMarkdown("costs \\$5 and \\$6");
+    // Backslashes are doubled (that is the contract); the dollars must not be
+    // touched as well, or the pair of escapes collapses into a literal one.
+    expect(out.match(/\\/g)?.length).toBe(4);
+    expect(out.match(/\$/g)?.length).toBe(2);
+  });
+
+  it("leaves a single dollar alone", () => {
+    expect(escapeInlineMarkdown("100% $5 off")).toBe("100% $5 off");
+  });
+});
+
+describe("image reachability", () => {
+  it("accepts a repo path that walks up a directory", () => {
+    // GitHub resolves relative image paths against the README's own folder, so
+    // `../docs/img/shot.png` is reachable. The old pattern only allowed `./`,
+    // which made validate.ts raise a blocking "unresolvable image" error on a
+    // README that rendered perfectly.
+    expect(isProbablyImageUrl("../docs/img/shot.png")).toBe(true);
+    expect(isProbablyImageUrl("./docs/img/shot.png")).toBe(true);
+    expect(isProbablyImageUrl("/docs/img/shot.png")).toBe(true);
+    expect(isProbablyImageUrl("docs/img/shot.png")).toBe(false);
+    expect(isProbablyImageUrl(null as unknown as string)).toBe(false);
   });
 });

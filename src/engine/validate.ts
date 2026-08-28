@@ -188,8 +188,15 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
       });
     }
     // An empty `url` on an item that also has a label means the row vanishes.
-    const items = (block.props as { items?: { url?: string; label?: string }[] }).items;
-    for (const item of items ?? []) {
+    // Hero buttons are the same shape and the same mistake, so they are checked
+    // here too — the compiler drops them rather than emitting `href=""` (an
+    // empty anchor *is* clickable on GitHub: verified, and it is a dead button).
+    const linky = block.props as {
+      items?: { url?: string; label?: string }[];
+      buttons?: { url?: string; label?: string }[];
+    };
+    const items = [...(linky.items ?? []), ...(linky.buttons ?? [])];
+    for (const item of items) {
       if (item.label && !(item.url ?? "").trim()) {
         push({
           level: "error",
@@ -279,6 +286,30 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
       message: `“[${match[1] ?? ""}]()” points nowhere.`,
       fix: "Add a URL, or drop the brackets.",
     });
+  }
+
+  // 11. A row wider than the header cannot be rendered: GFM shows the first
+  // `columns.length` cells and throws the rest away. The compiler truncates so
+  // the table stays valid — correct for the output, silent data loss for the
+  // author, which is exactly what this list is for.
+  for (const block of blocks) {
+    if (block.type !== "table") continue;
+    const p = block.props as { columns?: unknown[]; rows?: unknown[][] };
+    const width = Array.isArray(p.columns) ? p.columns.length : 0;
+    if (width === 0) continue;
+    const rows = Array.isArray(p.rows) ? p.rows : [];
+    const overflow = rows.filter(
+      (row) => Array.isArray(row) && row.slice(width).some((cell) => String(cell ?? "").trim() !== ""),
+    );
+    if (overflow.length) {
+      push({
+        level: "error",
+        rule: "table-cells-dropped",
+        message: `${overflow.length} row(s) have more cells than the ${width} column(s); the extra text would be lost.`,
+        blockId: block.id,
+        fix: "Add a column for them, or clear the extra cells.",
+      });
+    }
   }
 
   // 12. Helpful nudges, not errors.

@@ -68,3 +68,35 @@ describe("validateDocument", () => {
     expect(found).toBeDefined();
   });
 });
+
+describe("silent data loss becomes a message", () => {
+  const rulesFor = (type: BlockType, props: Record<string, unknown>): string[] => {
+    const b = block(type, props);
+    return validateDocument([b], compileDocument([b])).map((i) => i.rule);
+  };
+
+  it("flags table rows wider than the header", () => {
+    // The compiler truncates to the header width to keep the table valid, which
+    // is right for the output and silent for the author.
+    const rules = rulesFor("table", { columns: ["A"], rows: [["keep"], ["keep", " and this"]] });
+    expect(rules).toContain("table-cells-dropped");
+    const truncated = compileDocument([block("table", { columns: ["A"], rows: [["keep"], ["keep", "x"]] })]);
+    expect(truncated).toContain("| A |");
+    expect(truncated).not.toContain("x"); // dropped from the output, but reported
+  });
+
+  it("does not flag a short row (an empty cell is normal)", () => {
+    expect(rulesFor("table", { columns: ["A", "B", "C"], rows: [["only one"]] })).not.toContain(
+      "table-cells-dropped",
+    );
+  });
+
+  it("flags a hero button with a label but no URL", () => {
+    // The links/checklist panels had this rule; hero buttons are the same
+    // shape and the mistake is just as invisible there.
+    expect(rulesFor("hero", { buttons: [{ label: "Docs", url: "" }] })).toContain("link-without-url");
+    expect(rulesFor("hero", { buttons: [{ label: "Docs", url: "https://a.dev" }] })).not.toContain(
+      "link-without-url",
+    );
+  });
+});
