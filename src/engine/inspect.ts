@@ -48,6 +48,15 @@ export function summarizeBlock(block: Block): string {
       return `${count(p.examples)} example${count(p.examples) === "1" ? "" : "s"}`;
     case "license":
       return clip(String(p.notice ?? "").replace(/```/g, ""));
+    case "collapsible":
+      return `${p.open ? "open" : "collapsed"} · ${clip(String(p.summary ?? ""), 40)}`;
+    case "checklist": {
+      const items = (p.items as { done?: boolean }[] | undefined) ?? [];
+      const done = items.filter((i) => i.done).length;
+      return `${done}/${items.length} checked · ${String(p.style ?? "")}`;
+    }
+    case "links":
+      return `${count(p.items)} link${count(p.items) === "1" ? "" : "s"} · ${String(p.style ?? "")}`;
     default:
       return "";
   }
@@ -81,4 +90,7 @@ export const TYPE_LABEL: Record<BlockType, string> = {
   installation: "Installation",
   usage: "Usage",
   license: "License",
+  collapsible: "Collapsible",
+  checklist: "Checklist",
+  links: "Links",
 };

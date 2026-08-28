@@ -39,6 +39,9 @@ type TechStackBlock = Extract<Block, { type: "techstack" }>;
 type InstallationBlock = Extract<Block, { type: "installation" }>;
 type UsageBlock = Extract<Block, { type: "usage" }>;
 type LicenseBlock = Extract<Block, { type: "license" }>;
+type CollapsibleBlock = Extract<Block, { type: "collapsible" }>;
+type ChecklistBlock = Extract<Block, { type: "checklist" }>;
+type LinksBlock = Extract<Block, { type: "links" }>;
 
 interface PanelProps<T extends Block> {
   block: T;
@@ -1004,6 +1007,178 @@ function LicensePanel({ block, set }: PanelProps<LicenseBlock>) {
   );
 }
 
+/* ------------------------- phase 2: engine blocks ------------------------- */
+
+function CollapsiblePanel({ block, set }: PanelProps<CollapsibleBlock>) {
+  const p = block.props;
+  return (
+    <div className="space-y-2.5">
+      <Grid cols={2}>
+        <Field label="Summary">
+          <TextInput
+            value={p.summary}
+            onChange={(summary) => set({ summary })}
+            placeholder="Click to expand"
+          />
+        </Field>
+        <Field label="Icon" hint="optional prefix">
+          <TextInput value={p.icon} onChange={(icon) => set({ icon })} placeholder="📦" />
+        </Field>
+      </Grid>
+      <Field label="Body" hint="Markdown is parsed here">
+        <TextArea
+          value={p.body}
+          onChange={(body) => set({ body })}
+          rows={7}
+          spellcheck
+          placeholder={"Fenced code, tables and lists all work."}
+        />
+      </Field>
+      <Checkbox checked={p.open} onChange={(open) => set({ open })}>
+        Expanded by default
+      </Checkbox>
+      <p className="text-[11px] leading-relaxed text-zinc-500">
+        Emits <code className="rounded bg-zinc-800 px-1 font-mono text-[10px]">&lt;details&gt;</code> with
+        blank lines around the body — without them GitHub stops parsing Markdown inside the block.
+      </p>
+    </div>
+  );
+}
+
+function ChecklistPanel({ block, set }: PanelProps<ChecklistBlock>) {
+  const p = block.props;
+  const done = p.items.filter((i) => i.done).length;
+  return (
+    <div className="space-y-2.5">
+      <Segmented
+        label="Marker"
+        value={p.style}
+        onChange={(style) => set({ style })}
+        options={[
+          { value: "task", label: "- [x]", title: "GFM task list — real checkboxes on GitHub" },
+          { value: "square", label: "[■]", title: "Literal boxes — render on any Markdown host" },
+          { value: "circle", label: "(●)", title: "Round markers" },
+        ]}
+      />
+      <Grid cols={2}>
+        <Field label="Section title">
+          <TextInput value={p.title} onChange={(title) => set({ title })} />
+        </Field>
+        <div className="flex flex-col justify-end gap-1.5 pb-1">
+          <Checkbox checked={p.showTitle} onChange={(showTitle) => set({ showTitle })}>
+            Show title
+          </Checkbox>
+          <Checkbox checked={p.showProgress} onChange={(showProgress) => set({ showProgress })}>
+            Show progress line
+          </Checkbox>
+        </div>
+      </Grid>
+      <p className="text-[11px] text-zinc-500">
+        {done} of {p.items.length} checked
+      </p>
+      <ListEditor
+        items={p.items}
+        onChange={(items) => set({ items })}
+        create={() => ({ text: "New task", done: false, note: "" })}
+        singular="Task"
+        titleOf={(item) => item.text}
+        render={(item, update) => (
+          <div className="space-y-2">
+            <Field label="Task" hint="Markdown allowed">
+              <TextInput value={item.text} onChange={(text) => update({ text })} />
+            </Field>
+            <Field label="Note" hint="shown after an em dash">
+              <TextInput value={item.note} onChange={(note) => update({ note })} />
+            </Field>
+            <Checkbox checked={item.done} onChange={(checked) => update({ done: checked })}>
+              Done
+            </Checkbox>
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+
+function LinksPanel({ block, set }: PanelProps<LinksBlock>) {
+  const p = block.props;
+  const imageBased = p.style === "pills" || p.style === "buttons";
+  return (
+    <div className="space-y-2.5">
+      <Segmented
+        label="Style"
+        value={p.style}
+        onChange={(style) => set({ style })}
+        options={[
+          { value: "pills", label: "Pills", title: "shields.io images inside links" },
+          { value: "buttons", label: "Big buttons", title: "for-the-badge, green, with an arrow" },
+          { value: "list", label: "List", title: "- [label](url) — Markdown, selectable and copyable" },
+          { value: "inline", label: "Inline", title: "[a](u) · [b](u) on one line" },
+        ]}
+      />
+      <Grid cols={3}>
+        <Segmented
+          label="Align"
+          value={p.align}
+          onChange={(align) => set({ align })}
+          options={[
+            { value: "center", label: "Center" },
+            { value: "left", label: "Left" },
+          ]}
+        />
+        <Field label="Colour" hint={imageBased ? "hex or name" : "unused"}>
+          <TextInput value={p.color} onChange={(color) => set({ color })} mono placeholder="555" />
+        </Field>
+        <Field label="Section title" hint="optional">
+          <TextInput value={p.title} onChange={(title) => set({ title })} />
+        </Field>
+      </Grid>
+      {imageBased ? (
+        <p className="text-[11px] leading-relaxed text-zinc-500">
+          These are <span className="text-zinc-400">images</span>, so the text is not selectable or searchable
+          and it needs the network to render. Pick List or Inline when that matters.
+        </p>
+      ) : null}
+      <ListEditor
+        items={p.items}
+        onChange={(items) => set({ items })}
+        create={() => ({ label: "Link", url: "https://", icon: "", description: "" })}
+        singular="Link"
+        titleOf={(item) => item.label}
+        render={(item, update) => (
+          <div className="space-y-2">
+            <Grid cols={2}>
+              <Field label="Label">
+                <TextInput value={item.label} onChange={(label) => update({ label })} />
+              </Field>
+              <Field label="Icon" hint="list / inline only">
+                <TextInput value={item.icon} onChange={(icon) => update({ icon })} placeholder="📖" />
+              </Field>
+            </Grid>
+            <Field label="URL">
+              <TextInput value={item.url} onChange={(url) => update({ url })} mono type="url" />
+            </Field>
+            <Field label="Description" hint="list / inline only">
+              <TextInput value={item.description} onChange={(description) => update({ description })} />
+            </Field>
+            {imageBased ? (
+              <UrlThumb
+                url={shieldsUrl({
+                  label: p.style === "buttons" ? item.label : "",
+                  message: p.style === "buttons" ? "→" : "",
+                  color: p.color || (p.style === "buttons" ? "2ea44f" : "555"),
+                  style: p.style === "buttons" ? "for-the-badge" : "flat",
+                })}
+                height={20}
+              />
+            ) : null}
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+
 /* ------------------------------ dispatch ------------------------------ */
 
 export function BlockEditor({ block }: { block: Block }) {
@@ -1038,6 +1213,12 @@ export function BlockEditor({ block }: { block: Block }) {
       return <UsagePanel block={block} set={set} />;
     case "license":
       return <LicensePanel block={block} set={set} />;
+    case "collapsible":
+      return <CollapsiblePanel block={block} set={set} />;
+    case "checklist":
+      return <ChecklistPanel block={block} set={set} />;
+    case "links":
+      return <LinksPanel block={block} set={set} />;
     default: {
       const _exhaustive: never = block;
       void _exhaustive;

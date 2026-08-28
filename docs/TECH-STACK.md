@@ -12,15 +12,17 @@ Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measu
 
 ---
 
-## 0. Status: what Phase 1 actually ships
+## 0. Status: what Phases 1–2 actually ship
 
-Phase 1 (the roadmap's “Core README builder”) is implemented, with 107 tests
-covering the engine, the store and the mounted shell.
+Phase 1 (the roadmap's “Core README builder”) and Phase 2 (the “GitHub Markdown
+engine”) are implemented, with 167 tests covering the engine, the golden fixture, the
+store, preview fidelity and the mounted shell — plus 14 more that run against GitHub's
+own renderer when `GFM_FIDELITY=1` is set.
 
 | Roadmap Phase 1 item | Where it lives |
 | --- | --- |
 | application shell | `src/App.tsx` — three panes on wide viewports, Build/Preview switch below `xl` |
-| block sidebar | `src/ui/palette/BlockPalette.tsx` — 12 blocks in 4 groups, click to append or drag to place |
+| block sidebar | `src/ui/palette/BlockPalette.tsx` — 15 blocks in 4 groups, click to append or drag to place |
 | canvas | `src/ui/canvas/Canvas.tsx` + `BlockCard.tsx` |
 | block insertion | `store/document.ts` → `addBlock` / `insertBlock` / `handleDrop` (gap droppables give the index) |
 | block deletion | `removeBlock` — selection falls to the neighbouring block |
@@ -53,8 +55,44 @@ Deliberate deviations from §2, all of them "later, not never":
 | CSS grid instead of `react-resizable-panels` | Drag-resizable panes are polish, not capability. |
 | `localStorage` autosave, not Dexie | One debounced write-behind key is enough until Phase 6 introduces *projects*; `storage.ts` keeps the swap to IndexedDB to one file. |
 
-Measured result: boot chunk **127.7 kB gzip**, lazy preview engine **180.5 kB gzip** —
-the §6 budget (≤ 200 kB on boot) held.
+Measured result: boot chunk **131.3 kB gzip** (127.7 after Phase 1), lazy preview
+engine **180.5 kB gzip** — the §6 budget (≤ 200 kB on boot) still held after Phase 2.
+
+### Phase 2 — the GitHub Markdown engine
+
+The roadmap's list (tables, alerts, fences, links, images, `<details>`, task lists,
+badges, HTML blocks, escaping, validation) was mostly *present* after Phase 1 and is
+now *specified*, which is a different job:
+
+| Item | What landed |
+| --- | --- |
+| `<details>` | `collapsible` block. The compiler puts a blank line after `</summary>` — without it GitHub shows raw Markdown instead of parsing it. Verified against GitHub's renderer, including a fenced block inside `<details>`. |
+| task lists | `checklist` block, three marker styles (`- [ ]`, `[■]`, `(●)`) and an optional progress line. Notes ride inline so the list stays tight. |
+| links / buttons | `links` block: pills and big buttons as shields.io images inside `<a>`, or pure-Markdown list/inline. Centring needs HTML, so `list`/`inline` are left-aligned on purpose — that tradeoff is a comment in `compileLinks`, not a bug. |
+| escaping | `escapeInlineMarkdown()` + the label-vs-body contract (§0 above). `_` and `[…]()` are deliberately not escaped; the reasoning is in the function's comment. |
+| URLs | `sanitizeUrl` now strips control characters before the scheme test (`java\0script:` no longer slips past), allow-lists `http/https/mailto/tel`, and drops `data:` because GitHub's camo proxy refuses it. |
+| validation | seven new rules: `url-dropped`, `link-without-url`, `unknown-alert-type`, `details-swallow`, `duplicate-anchor`, `heading-skip`, `empty-link-target`, `unbalanced-strong`. |
+| fidelity | `fidelity-rules.ts` — one set of assertions, run against **our preview** and against **GitHub's renderer** (`/api.github.com/markdown`). |
+
+Two findings worth keeping, because both are the kind that hides:
+
+1. **The preview was lying about alerts.** `hast-util-sanitize`'s default schema allows
+   `className` on `code` only, so `<div class="markdown-alert markdown-alert-warning">`
+   lost its class and the octicon `<svg>` was dropped entirely: alerts rendered as a bare
+   blockquote in the pane that exists to show “this is what GitHub will look like”.
+   Fixed in `MarkdownPreview.tsx` (allow `className` on `div`/`blockquote`, allow
+   `svg`/`path`). No compiler test could have caught this — only a test that renders.
+2. **Rules must match the tag, not the spelling.** GitHub emits
+   `<pre class="notranslate">` inside `<div class="highlight highlight-source-shell">`
+   and `<code class="notranslate">`, where react-markdown emits `<pre>` and
+   `style="text-align: center"` instead of `align="center"`. Asserting one renderer's
+   attribute shape makes the other one fail for no reason, so the shared rules use
+   `hasTag` / `textIn` helpers.
+
+The oracle is opt-in rather than always-on: CI should not need the network, GitHub's
+unauthenticated limit is per IP, and behind a TLS-terminating proxy Node needs
+`NODE_EXTRA_CA_CERTS`. A request that cannot be made **skips**; it does not fail red,
+because a red network test in a locked-down sandbox trains everyone to ignore the suite.
 
 ---
 
@@ -404,11 +442,15 @@ Aligned with roadmap §9 ("What I would NOT build initially"):
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 107 tests: engine, golden fixture, store, mounted-shell integration
+npm test           # 167 tests: engine, golden fixture, store, preview fidelity, shell
+GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
+                   # +14 tests against GitHub's own renderer (needs network; behind a TLS
+                   #   proxy add NODE_EXTRA_CA_CERTS=/path/to/proxy-ca.crt)
+UPDATE_GOLDEN=1 npx vitest run src/engine/__tests__/golden.test.ts
+                   # re-baseline the compiled README after an intentional compiler change
 npm run typecheck  # tsc -b
-npm run lint       # biome check src
+npm run lint       # biome check src scripts
 npm run build      # → dist/, preview with `npm run preview`
-UPDATE_GOLDEN=1 npx vitest run src/engine/__tests__/golden.test.ts   # after an intentional compiler change
 node scripts/gen-tech-brands.mjs      # regenerate src/data/tech-brands.json from simple-icons
 ```
 

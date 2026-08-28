@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { type Block, compileDocument, createBlock } from "../index";
+import { BLOCK_ORDER, type Block, compileDocument, createBlock } from "../index";
 
 /* ------------------------------------------------------------------ *
  * Golden-file test for the whole document (docs/TECH-STACK.md §2 "golden
@@ -105,11 +105,56 @@ function build(): Block[] {
   (license.props as Record<string, unknown>).year = "2026";
   (license.props as Record<string, unknown>).author = "Acme, Inc.";
 
+  const shot = createBlock("image");
+  (shot.props as Record<string, unknown>).url = "https://placehold.co/800x300/png?text=dashboard";
+  (shot.props as Record<string, unknown>).alt = "Dashboard";
+  (shot.props as Record<string, unknown>).caption = "Figure *one* — the *builder* canvas";
+
+  const tasks = createBlock("checklist");
+  (tasks.props as Record<string, unknown>).title = "Release checklist";
+  (tasks.props as Record<string, unknown>).showProgress = true;
+  (tasks.props as Record<string, unknown>).items = [
+    { text: "Run `npm test`", done: true, note: "" },
+    { text: "Update the changelog", done: true, note: "keep-a-changelog format" },
+    { text: "Tag v2.1.0", done: false, note: "after CI is green" },
+  ];
+
+  const collapse = createBlock("collapsible");
+  (collapse.props as Record<string, unknown>).summary = "Why a <details> and not a heading?";
+  (collapse.props as Record<string, unknown>).icon = "📦";
+  (collapse.props as Record<string, unknown>).body =
+    'Long setup notes stay out of the way.\n\n- Markdown is parsed here\n- so is this fence\n\n```toml\nkey = "value"\n```';
+
+  const links = createBlock("links");
+  (links.props as Record<string, unknown>).style = "list";
+  (links.props as Record<string, unknown>).title = "Where to go next";
+  (links.props as Record<string, unknown>).items = [
+    { label: "Tutorial", url: "https://acme.dev/tutorial", icon: "", description: "20 minutes" },
+    { label: "Support", url: "mailto:support@acme.dev", icon: "", description: "" },
+  ];
+
   const hidden = createBlock("heading");
   (hidden.props as Record<string, unknown>).text = "Draft section (hidden)";
   hidden.hidden = true;
 
-  return [hero, badges, features, tech, table, code, install, usage, alert, details, hidden, license];
+  return [
+    hero,
+    badges,
+    features,
+    tech,
+    table,
+    shot,
+    code,
+    install,
+    usage,
+    alert,
+    details,
+    collapse,
+    tasks,
+    links,
+    hidden,
+    license,
+  ];
 }
 
 const FIXTURE = path.join(import.meta.dirname, "__fixtures__", "sample.readme.md");
@@ -130,6 +175,28 @@ describe("golden document", () => {
     expect(markdown).not.toMatch(/\n{3,}/);
     expect(markdown.endsWith("\n")).toBe(true);
     expect(markdown).not.toMatch(/[ \t]+$/m);
+  });
+
+  it("covers every registered block type, so no block ships uncompiled", () => {
+    const inGolden = new Set(build().map((b) => b.type));
+    expect([...BLOCK_ORDER].sort()).toEqual([...inGolden].sort());
+  });
+
+  it("keeps <details> bodies parseable: a blank line after the summary", () => {
+    const markdown = compileDocument(build());
+    for (const match of markdown.matchAll(/<summary>[^<]*<\/summary>([\s\S]{0,3})/g)) {
+      expect(match[1] ?? "").toMatch(/^\n\n/);
+    }
+  });
+
+  it("keeps label fields free of unescaped Markdown markers", () => {
+    const markdown = compileDocument(build());
+    // A heading/section title must not contain a live emphasis run.
+    for (const line of markdown.split("\n")) {
+      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      if (!heading) continue;
+      expect(heading[1] ?? "").not.toMatch(/(?<!\\)\*[^*]+\*/);
+    }
   });
 
   it("keeps hidden blocks out of the export but in the model", () => {

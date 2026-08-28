@@ -1,10 +1,13 @@
 import {
   Boxes,
+  ChevronsUpDown,
   Code,
   Download,
   Heading,
   Image as ImageIcon,
+  Link,
   ListChecks,
+  ListTodo,
   Play,
   Scale,
   ShieldCheck,
@@ -28,4 +31,7 @@ export const BLOCK_ICONS: Record<BlockType, typeof Type> = {
   installation: Download,
   usage: Play,
   license: Scale,
+  collapsible: ChevronsUpDown,
+  checklist: ListTodo,
+  links: Link,
 };

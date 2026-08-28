@@ -1,6 +1,7 @@
 import {
   dedent,
   escapeHtml,
+  escapeInlineMarkdown,
   escapeTableCell,
   fenceFor,
   normalizeLines,
@@ -86,7 +87,22 @@ export function inlineMarkdownToHtml(input: string): string {
 }
 
 const nl = (value: string): string => normalizeLines(value).trim();
+
+/**
+ * Optional string fields can be absent — a document hand-edited in JSON, or one
+ * half-written by the future Markdown importer. The compiler must degrade to an
+ * empty string rather than throw, because a thrown error replaces the whole
+ * block with an HTML comment in the user's README.
+ */
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
 const safeUrl = (value: string): string => sanitizeUrl(value);
+
+/**
+ * Label fields (headings, section titles, list-item titles) are plain text, so
+ * Markdown syntax in them is neutralised. Bodies are never passed here — they
+ * are Markdown by contract. See escapeInlineMarkdown for what is left alone.
+ */
+const label = (value: string): string => escapeInlineMarkdown(nl(value));
 
 /* ------------------------------- blocks ------------------------------- */
 
@@ -128,8 +144,7 @@ function compileHeading(block: Block): string {
   const p = withProps(block, "heading");
   const level = "#".repeat(Math.min(6, Math.max(1, Number(p.level) || 2)));
   const emoji = nl(p.emoji as string);
-  const text = nl(p.text as string);
-  return `${level} ${emoji ? `${emoji} ` : ""}${text}`;
+  return `${level} ${emoji ? `${emoji} ` : ""}${label(p.text as string)}`;
 }
 
 function compileText(block: Block): string {
@@ -145,7 +160,7 @@ function compileFeatures(block: Block): string {
   const p = withProps(block, "features");
   const items = (p.items ?? []) as { icon: string; title: string; body: string }[];
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (p.showTitle && title) out.push(`## ${title}`, "");
   if (items.length === 0) return out.join("\n");
 
@@ -153,7 +168,7 @@ function compileFeatures(block: Block): string {
   if (layout === "bullets" || layout === "numbered" || layout === "icon-text") {
     const list = items.map((item, i) => {
       const icon = item.icon.trim();
-      const head = icon.length > 0 ? `${icon} **${item.title}**` : `**${item.title}**`;
+      const head = icon.length > 0 ? `${icon} **${label(item.title)}**` : `**${label(item.title)}**`;
       const body = item.body.trim();
       const bullet = layout === "numbered" ? `${i + 1}.` : "-";
       if (layout === "icon-text" && body)
@@ -231,7 +246,7 @@ function compileTable(block: Block): string {
   const align = (p.alignment ?? []) as ("left" | "center" | "right")[];
   if (columns.length === 0) return "";
 
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   const out: string[] = [];
   if (title) out.push(`### ${title}`, "");
 
@@ -256,7 +271,7 @@ function compileBadges(block: Block): string {
   const p = withProps(block, "badges");
   const items = (p.items ?? []) as { alt: string; imageUrl: string; linkUrl: string }[];
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   if (items.length === 0) return out.join("\n");
 
@@ -305,7 +320,7 @@ function compileTechStack(block: Block): string {
     items: { name: string; slug: string; hex: string }[];
   }[];
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   const nonEmpty = groups.filter((g) => g.items.length > 0);
   if (nonEmpty.length === 0) return out.join("\n");
@@ -372,7 +387,7 @@ function compileInstallation(block: Block): string {
   const p = withProps(block, "installation");
   const steps = (p.steps ?? []) as { title: string; body: string; code: string; language: string }[];
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   const intro = normalizeLines((p.intro as string) ?? "").trim();
   if (intro) out.push(intro, "");
@@ -390,7 +405,7 @@ function compileUsage(block: Block): string {
   const p = withProps(block, "usage");
   const examples = (p.examples ?? []) as { title: string; body: string; code: string; language: string }[];
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   const intro = normalizeLines((p.intro as string) ?? "").trim();
   if (intro) out.push(intro, "");
@@ -417,7 +432,7 @@ function compileUsage(block: Block): string {
 function compileLicense(block: Block): string {
   const p = withProps(block, "license");
   const out: string[] = [];
-  const title = nl(p.title as string);
+  const title = label(p.title as string);
   if (title) out.push(`## ${title}`, "");
   let notice = normalizeLines(p.notice as string).trim();
   notice = notice
@@ -428,6 +443,105 @@ function compileLicense(block: Block): string {
     notice = `${notice.replace(/\.$/, "")} See [${title || "LICENSE"}](${link}) for more information.`;
   }
   if (notice) out.push(notice);
+  return out.join("\n");
+}
+
+function compileCollapsible(block: Block): string {
+  const p = withProps(block, "collapsible");
+  const icon = nl(p.icon as string);
+  const summary = escapeHtml(icon ? `${icon} ${nl(p.summary as string)}` : nl(p.summary as string));
+  const body = normalizeLines((p.body as string) ?? "").trim();
+  const out: string[] = [`<details${p.open ? " open" : ""}>`, `<summary>${summary}</summary>`];
+  // The blank lines are load-bearing: an HTML block ends at a blank line, and
+  // that is what lets GitHub parse the Markdown between them as Markdown.
+  if (body) out.push("", body, "");
+  out.push("</details>");
+  return out.join("\n");
+}
+
+function compileChecklist(block: Block): string {
+  const p = withProps(block, "checklist");
+  const items = (p.items ?? []) as Partial<{ text: string; done: boolean; note: string }>[];
+  const out: string[] = [];
+  const title = label(str(p.title));
+  if (p.showTitle && title) out.push(`## ${title}`, "");
+  if (items.length === 0) return out.join("\n");
+
+  const style = p.style as string;
+  out.push(
+    items
+      .map((item) => {
+        const text = normalizeLines(str(item.text)).trim();
+        const note = normalizeLines(str(item.note)).trim();
+        // Inline, not an indented continuation: a blank line would turn the
+        // list loose and re-indent every other item.
+        const body = note ? `${text} — ${note}` : text;
+        if (style === "task") return `- [${item.done ? "x" : " "}] ${body}`;
+        const mark = style === "square" ? (item.done ? "[■]" : "[□]") : item.done ? "(●)" : "( )";
+        return `- ${mark} ${body}`;
+      })
+      .join("\n"),
+  );
+
+  if (p.showProgress) {
+    const done = items.filter((i) => i.done).length;
+    const all = done === items.length;
+    out.push("", `${all ? "✅" : "🕐"} ${done} of ${items.length} complete`);
+  }
+  return out.join("\n");
+}
+
+function compileLinks(block: Block): string {
+  const p = withProps(block, "links");
+  const raw = (p.items ?? []) as Partial<{ label: string; url: string; icon: string; description: string }>[];
+  const out: string[] = [];
+  const title = label(p.title as string);
+  if (title) out.push(`## ${title}`, "");
+  // An unsafe URL is dropped, not emitted as href="" — a missing button beats
+  // a clickable nothing, and validate.ts reports why.
+  const items = raw.map((i) => ({ ...i, href: safeUrl(str(i.url)) })).filter((i) => i.href.length > 0);
+  if (items.length === 0) return out.join("\n");
+
+  const style = p.style as string;
+  if (style === "list" || style === "inline") {
+    // These stay pure Markdown on purpose: GFM cannot centre a Markdown line,
+    // and wrapping it in <p align> would stop GitHub parsing the links inside.
+    const text = (item: (typeof items)[number]): string => {
+      const note = normalizeLines(str(item.description)).trim();
+      return `[${label(str(item.label))}](${item.href})${note ? ` — ${note}` : ""}`;
+    };
+    out.push(
+      style === "list"
+        ? items
+            .map((i) => {
+              const icon = str(i.icon).trim();
+              return `- ${icon ? `${icon} ` : ""}${text(i)}`;
+            })
+            .join("\n")
+        : items.map(text).join(" · "),
+    );
+    return out.join("\n");
+  }
+
+  // pills / buttons → shields.io images inside <a>, which is the only way to
+  // get a centred button row that survives GitHub's HTML sanitizer.
+  const buttons = style === "buttons";
+  const colorOf = str(p.color).trim() || (buttons ? "2ea44f" : "555");
+  const rendered = items.map((item) => {
+    // pills use shields' *single-text* form, which is `message-color`; using
+    // `label-color` instead would render a badge reading "badge".
+    const url = shieldsUrl(
+      buttons
+        ? { label: str(item.label), message: "→", color: colorOf, style: "for-the-badge" }
+        : { message: str(item.label), color: colorOf, style: "flat" },
+    );
+    return `<a href="${item.href}"><img src="${url}" alt="${escapeHtml(str(item.label))}" /></a>`;
+  });
+  out.push(
+    p.align === "center"
+      ? [`<p align="center">`, ...rendered.map((r) => `  ${r}`), "</p>"].join("\n")
+      : rendered.join(" "),
+  );
   return out.join("\n");
 }
 
@@ -446,6 +560,9 @@ const COMPILERS: Record<BlockType, (block: Block) => string> = {
   installation: compileInstallation,
   usage: compileUsage,
   license: compileLicense,
+  collapsible: compileCollapsible,
+  checklist: compileChecklist,
+  links: compileLinks,
 };
 
 /** One block → its Markdown. Used by the canvas "peek" and by tests. */

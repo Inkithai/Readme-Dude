@@ -162,6 +162,37 @@ describe("ReadMe Buddy shell", () => {
     expect(screen.getByRole("button", { name: "Toggle preview pane" })).toBeTruthy();
   });
 
+  it("wires the phase-2 blocks from the palette through to the preview", async () => {
+    render(<App />);
+    const palette = screen.getByRole("navigation", { name: "Block palette" });
+    for (const label of [/^Collapsible/, /^Checklist/, /^Links/]) {
+      fireEvent.click(within(palette).getByRole("button", { name: label }));
+    }
+
+    const canvas = screen.getByRole("list", { name: "Document blocks" });
+    expect(within(canvas).getByText(/collapsed · Click to expand/)).toBeTruthy();
+    expect(within(canvas).getByText(/1\/3 checked · task/)).toBeTruthy();
+    expect(within(canvas).getByText(/3 links · pills/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Markdown/ }));
+    // Scoped: the palette's Collapsible hint says "<details>" too, so an
+    // unscoped text query is ambiguous here on purpose of the copy, not by accident.
+    const source = await waitFor(() => {
+      const el = within(screen.getByRole("tabpanel")).getByText(/<details>/);
+      expect(el.textContent).toContain("- [x] Install the package");
+      expect(el.textContent).toContain("img.shields.io/badge/");
+      return el;
+    });
+    expect(source.textContent).toContain("<summary>Click to expand</summary>");
+
+    // The preview must show a real <details> and real checkboxes, not the syntax.
+    fireEvent.click(screen.getByRole("tab", { name: /^Preview$/ }));
+    await waitFor(() => expect(document.querySelectorAll("details summary").length).toBe(1), {
+      timeout: 4000,
+    });
+    expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+  });
+
   it("keeps the three panes present on wide viewports", () => {
     render(<App />);
     expect(screen.getByRole("navigation", { name: "Block palette" })).toBeTruthy();

@@ -224,6 +224,75 @@ export const LicenseBlock = z.object({
   }),
 });
 
+/**
+ * `<details>` — GitHub does *not* parse Markdown inside a generic HTML block,
+ * but it does inside `<details>` provided a blank line separates the summary
+ * from the body. That blank line is emitted by the compiler, not the user.
+ */
+export const CollapsibleBlock = z.object({
+  id: z.string(),
+  type: z.literal("collapsible"),
+  hidden: z.boolean().default(false),
+  props: z.object({
+    /** Optional emoji/▸ marker shown before the summary text. */
+    icon: text.default(""),
+    summary: text.min(1, "Summary is required"),
+    /** Markdown/GFM allowed — this is a body field, not a label. */
+    body: text.default(""),
+    open: z.boolean().default(false),
+  }),
+});
+
+export const ChecklistItemSchema = z.object({
+  /** Markdown allowed (`` `npm i` `` inside a list item is normal). */
+  text: text.min(1, "Task is required"),
+  done: z.boolean().default(false),
+  /** Rendered inline after an em dash, so the list stays tight. */
+  note: text.default(""),
+});
+export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
+
+export const ChecklistBlock = z.object({
+  id: z.string(),
+  type: z.literal("checklist"),
+  hidden: z.boolean().default(false),
+  props: z.object({
+    title: text.default("Checklist"),
+    showTitle: z.boolean().default(true),
+    /** "- [ ]" needs GFM task lists; "☉" style renders everywhere. */
+    style: z.enum(["task", "square", "circle"]).default("task"),
+    showProgress: z.boolean().default(false),
+    items: z.array(ChecklistItemSchema).default([]),
+  }),
+});
+
+export const LinkItemSchema = z.object({
+  label: text.min(1, "Label is required"),
+  url: url.min(1, "URL is required"),
+  /** Prefix marker for the list/inline variants. */
+  icon: text.default(""),
+  description: text.default(""),
+});
+export type LinkItem = z.infer<typeof LinkItemSchema>;
+
+export const LinksBlock = z.object({
+  id: z.string(),
+  type: z.literal("links"),
+  hidden: z.boolean().default(false),
+  props: z.object({
+    title: text.default(""),
+    /**
+     * pills/buttons build shields.io images (they survive GitHub's sanitizer
+     * and need no CSS); list/inline are pure Markdown, which stays selectable
+     * and copy-pasteable — a real tradeoff, so it is the user's to make.
+     */
+    style: z.enum(["pills", "buttons", "list", "inline"]).default("pills"),
+    align: z.enum(["left", "center"]).default("center"),
+    color: text.default("555"),
+    items: z.array(LinkItemSchema).default([]),
+  }),
+});
+
 /* --------------------------- the union --------------------------- */
 
 export const BlockSchema = z.discriminatedUnion("type", [
@@ -239,6 +308,9 @@ export const BlockSchema = z.discriminatedUnion("type", [
   InstallationBlock,
   UsageBlock,
   LicenseBlock,
+  CollapsibleBlock,
+  ChecklistBlock,
+  LinksBlock,
 ]);
 export type Block = z.infer<typeof BlockSchema>;
 export type BlockType = Block["type"];
@@ -454,6 +526,55 @@ export const BLOCKS: Record<BlockType, BlockDefinition> = {
     category: "project",
     hint: "License notice and link",
     create: () => make("license", {}),
+  },
+  collapsible: {
+    type: "collapsible",
+    label: "Collapsible",
+    category: "content",
+    hint: "Show/hide section (<details>)",
+    create: () =>
+      make("collapsible", {
+        icon: "",
+        summary: "Click to expand",
+        body: "Markdown works in here — lists, code fences, tables and images.\n\nKeep long setup notes out of the way until someone needs them.",
+        open: false,
+      }),
+  },
+  checklist: {
+    type: "checklist",
+    label: "Checklist",
+    category: "content",
+    hint: "Task list with checkboxes",
+    create: () =>
+      make("checklist", {
+        title: "Checklist",
+        showTitle: true,
+        style: "task",
+        showProgress: false,
+        items: [
+          { text: "Install the package", done: true, note: "" },
+          { text: "Configure your editor", done: false, note: "" },
+          { text: "Ship it", done: false, note: "" },
+        ],
+      }),
+  },
+  links: {
+    type: "links",
+    label: "Links",
+    category: "structure",
+    hint: "Docs / demo / repo buttons and lists",
+    create: () =>
+      make("links", {
+        title: "",
+        style: "pills",
+        align: "center",
+        color: "555",
+        items: [
+          { label: "Documentation", url: "https://example.com/docs", icon: "", description: "" },
+          { label: "Live demo", url: "https://example.com", icon: "", description: "" },
+          { label: "Report an issue", url: "https://example.com/issues", icon: "", description: "" },
+        ],
+      }),
   },
 };
 

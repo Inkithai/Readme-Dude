@@ -69,6 +69,12 @@
 | client.delete() | yes |  |
 | client.stream() | no | Two lines<br>in one cell |
 
+<p align="center">
+  <img src="https://placehold.co/800x300/png?text=dashboard" alt="Dashboard" width="900" />
+</p>
+
+*Figure <em>one</em> — the <em>builder</em> canvas*
+
 `README.snippet.md`
 
 ````markdown
@@ -112,6 +118,33 @@ console.log(r);
   - Edge-first
   - No retries on 4xx
 </details>
+
+<details>
+<summary>📦 Why a &lt;details&gt; and not a heading?</summary>
+
+Long setup notes stay out of the way.
+
+- Markdown is parsed here
+- so is this fence
+
+```toml
+key = "value"
+```
+
+</details>
+
+## Release checklist
+
+- [x] Run `npm test`
+- [x] Update the changelog — keep-a-changelog format
+- [ ] Tag v2.1.0 — after CI is green
+
+🕐 2 of 3 complete
+
+## Where to go next
+
+- [Tutorial](https://acme.dev/tutorial) — 20 minutes
+- [Support](mailto:support@acme.dev)
 
 ## License
 

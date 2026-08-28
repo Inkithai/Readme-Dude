@@ -8,8 +8,8 @@ A visual GitHub README builder: compose blocks, choose how each section is
 presented, preview it like github.com, export Markdown. Frontend-only — no backend,
 no account, your document stays in your browser.
 
-> **Status: Phase 1 (core builder) is implemented.** The rest of this document is the
-> product roadmap that Phase 1 was built against.
+> **Status: Phases 1–2 are implemented** — the core builder and the GitHub Markdown
+> engine. The rest of this document is the product roadmap they were built against.
 > Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
 >
 > Renamed from *ReadMe Studio*; `localStorage` keys migrate on first load, so a
@@ -20,14 +20,17 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 107 tests (engine, golden fixture, store, mounted-shell integration)
+npm test           # 167 tests (engine, golden fixture, store, preview fidelity, shell)
+# GitHub's own renderer as an oracle (opt-in, needs network):
+#   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
 ```
 
 ## What works today
 
-- **12 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
-  Tech stack, Installation, Usage, License — each with its own property panel.
+- **15 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
+  Tech stack, Installation, Usage, License, Collapsible (`<details>`), Checklist
+  (task lists), Links (buttons/pills/list) — each with its own property panel.
 - **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
   delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
 - **Layout choices, not just content**: hero alignment, five feature layouts
@@ -36,8 +39,16 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 - **Live GitHub preview** (`github-markdown-css` + GFM + alerts + sanitized HTML),
   a **raw Markdown** view, and a **per-block Markdown peek** so you can see what each
   block contributes to the export.
-- **Checks** tab: unbalanced fences, stray `</details>`, unescaped table pipes and
-  unresolvable image paths are reported before you paste the result into a repo.
+- **Checks** tab: unbalanced fences, stray `</details>`, unescaped table pipes,
+  unresolvable image paths, unknown alert types, duplicate section anchors, dropped
+  URLs and Markdown pasted straight after `</summary>` are reported before you paste
+  the result into a repo.
+- **Escaping contract**: single-line label fields (headings, titles) are plain text
+  and get Markdown-neutralised; multi-line bodies are Markdown and are never touched.
+  `javascript:`/`data:`/control-character URLs are dropped, not escaped, and reported.
+- **Fidelity, tested twice**: one rule file (`src/engine/__tests__/fidelity-rules.ts`)
+  is asserted against our own preview *and* against `POST /api.github.com/markdown` —
+  GitHub's renderer. 14 rules, both suites green.
 - **Output**: Copy Markdown, Download `README.md` (`⌘S`), plus `.json` export/import.
   Autosave to `localStorage` so a refresh never loses work.
 
