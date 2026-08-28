@@ -1,9 +1,10 @@
 import { Plus, Wand2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import brands from "@/data/tech-brands.json";
-import type { Block } from "@/engine";
+import type { Block, ShotItem } from "@/engine";
 import { dedent, shieldsUrl } from "@/engine";
 import { useDocument } from "@/store/document";
+import { ImageThumb, LayoutPicker, type LayoutShape } from "@/ui/designer/kit";
 import {
   Btn,
   Checkbox,
@@ -94,22 +95,6 @@ const COLOR_PRESETS = [
 
 /* ------------------------------ hero ------------------------------ */
 
-function UrlThumb({ url, height = 44 }: { url: string; height?: number }) {
-  const [failed, setFailed] = useState(false);
-  if (!url.trim() || failed) return null;
-  return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950" style={{ height }}>
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        onError={() => setFailed(true)}
-        className="mx-auto block h-full w-auto max-w-full object-contain"
-      />
-    </div>
-  );
-}
-
 function HeroPanel({ block, set }: PanelProps<HeroBlock>) {
   const p = block.props;
   return (
@@ -142,7 +127,7 @@ function HeroPanel({ block, set }: PanelProps<HeroBlock>) {
             placeholder="https://…"
             mono
           />
-          <UrlThumb url={p.logoUrl} height={38} />
+          <ImageThumb url={p.logoUrl} height={38} />
         </Field>
         <Field label="Logo width">
           <NumberInput
@@ -153,6 +138,30 @@ function HeroPanel({ block, set }: PanelProps<HeroBlock>) {
             step={4}
             suffix="px"
           />
+        </Field>
+      </Grid>
+      <Grid cols={2}>
+        <Field label="Image URL" hint="a screenshot under the tagline" className="min-w-0">
+          <TextInput
+            value={p.imageUrl}
+            onChange={(imageUrl) => set({ imageUrl })}
+            placeholder="https://…"
+            mono
+          />
+          <ImageThumb url={p.imageUrl} height={56} />
+        </Field>
+        <Field label="Image width">
+          <NumberInput
+            value={p.imageWidth}
+            onChange={(imageWidth) => set({ imageWidth })}
+            min={160}
+            max={2400}
+            step={20}
+            suffix="px"
+          />
+          <div className="mt-1">
+            <TextInput value={p.imageAlt} onChange={(imageAlt) => set({ imageAlt })} placeholder="alt text" />
+          </div>
         </Field>
       </Grid>
       <ListEditor
@@ -323,45 +332,213 @@ function FeaturesPanel({ block, set }: PanelProps<FeaturesBlock>) {
 
 /* ------------------------------ image / code ------------------------------ */
 
+/* --------------------------- screenshot designer --------------------------- */
+
+/**
+ * The five arrangements the roadmap names, over a schema that is orthogonal
+ * (`layout` × `columns`). Two of these choices — "2 columns" and "3 columns" —
+ * are the same layout at a different density, which is exactly the kind of
+ * thing a dropdown of words hides and a row of thumbnails shows.
+ */
+type ShotChoice = "single" | "two" | "three" | "gallery" | "split";
+
+const SHOT_OPTIONS: { value: ShotChoice; label: string; shape: LayoutShape; hint: string }[] = [
+  { value: "single", label: "Single", shape: "single", hint: "One image at your width, caption below" },
+  { value: "two", label: "2 columns", shape: "columns", hint: "Two images side by side, each at your width" },
+  { value: "three", label: "3 columns", shape: "columns", hint: "A tighter row of three" },
+  { value: "gallery", label: "Gallery", shape: "gallery", hint: "Captioned cards that fill their column" },
+  { value: "split", label: "Image + text", shape: "split", hint: "Screenshot left, prose right" },
+];
+
+const emptyShot = (): ShotItem => ({
+  url: "https://placehold.co/900x520/png?text=Screenshot",
+  alt: "",
+  caption: "",
+  link: "",
+});
+
 function ImagePanel({ block, set }: PanelProps<ImageBlock>) {
   const p = block.props;
-  return (
-    <div className="space-y-2.5">
-      <Field label="Image URL" hint="must be reachable by GitHub">
-        <TextInput value={p.url} onChange={(url) => set({ url })} mono placeholder="https://…" />
-        <UrlThumb url={p.url} height={96} />
+  const choice: ShotChoice =
+    p.layout === "columns" ? (p.columns === 3 ? "three" : "two") : (p.layout as ShotChoice);
+  const isRow = p.layout === "columns" || p.layout === "gallery";
+  // Defensive reads: the model is only schema-validated at the boundaries, so a
+  // hand-merged block can arrive with `items: undefined`, and a crash inside a
+  // property panel takes the whole editor with it.
+  const items = Array.isArray(p.items) ? p.items : [];
+  const leadUrl = String(p.url ?? "");
+
+  /**
+   * Switching layout must never cost you what you already typed: a block whose
+   * single `url` is filled carries that image into the first slot of the row.
+   */
+  const promote = (): ShotItem[] =>
+    items.length > 0 || !leadUrl.trim()
+      ? items
+      : [
+          {
+            url: leadUrl,
+            alt: String(p.alt ?? ""),
+            caption: String(p.caption ?? ""),
+            link: String(p.linkUrl ?? ""),
+          },
+        ];
+
+  const pick = (next: ShotChoice) => {
+    if (next === "two") set({ layout: "columns", columns: 2, items: promote() });
+    else if (next === "three") set({ layout: "columns", columns: 3, items: promote() });
+    else if (next === "gallery") set({ layout: "gallery", items: promote() });
+    else if (next === "split") set({ layout: "split" });
+    else set({ layout: "single" });
+  };
+
+  const shotFields = (item: ShotItem, update: (patch: Partial<ShotItem>) => void) => (
+    <div className="space-y-2">
+      <Field label="Image URL" hint="absolute https://, or ./docs/img.png in the repo" className="min-w-0">
+        <TextInput value={item.url} onChange={(url) => update({ url })} mono placeholder="https://…" />
+        <ImageThumb url={item.url} height={54} />
       </Field>
       <Grid cols={2}>
         <Field label="Alt text">
-          <TextInput value={p.alt} onChange={(alt) => set({ alt })} />
-        </Field>
-        <Field label="Width">
-          <NumberInput
-            value={p.width}
-            onChange={(width) => set({ width })}
-            min={120}
-            max={2400}
-            step={20}
-            suffix="px"
+          <TextInput
+            value={item.alt}
+            onChange={(alt) => update({ alt })}
+            placeholder="What the image shows"
           />
         </Field>
+        <Field label={p.layout === "gallery" ? "Caption" : "Caption (optional)"}>
+          <TextInput value={item.caption} onChange={(caption) => update({ caption })} />
+        </Field>
       </Grid>
-      <Segmented
-        label="Align"
-        value={p.align}
-        onChange={(align) => set({ align })}
-        options={[
-          { value: "left", label: "Left" },
-          { value: "center", label: "Center" },
-          { value: "right", label: "Right" },
-        ]}
-      />
-      <Field label="Caption" hint="italic line below">
-        <TextInput value={p.caption} onChange={(caption) => set({ caption })} />
+      <Field label="Click-through link" hint="optional — wraps this image in an <a>">
+        <TextInput value={item.link} onChange={(link) => update({ link })} mono placeholder="https://…" />
       </Field>
-      <Field label="Wrapping link" hint="optional">
-        <TextInput value={p.linkUrl} onChange={(linkUrl) => set({ linkUrl })} mono placeholder="https://…" />
-      </Field>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2.5">
+      <LayoutPicker label="Layout" value={choice} onChange={pick} options={SHOT_OPTIONS} />
+
+      {p.layout === "single" ? (
+        <>
+          <Field label="Image URL" hint="must be reachable by GitHub">
+            <TextInput value={p.url} onChange={(url) => set({ url })} mono placeholder="https://…" />
+            <ImageThumb url={p.url} height={96} />
+          </Field>
+          <Grid cols={2}>
+            <Field label="Alt text">
+              <TextInput value={p.alt} onChange={(alt) => set({ alt })} />
+            </Field>
+            <Field label="Width">
+              <NumberInput
+                value={p.width}
+                onChange={(width) => set({ width })}
+                min={120}
+                max={2400}
+                step={20}
+                suffix="px"
+              />
+            </Field>
+          </Grid>
+          <Segmented
+            label="Align"
+            value={p.align}
+            onChange={(align) => set({ align })}
+            options={[
+              { value: "left", label: "Left" },
+              { value: "center", label: "Center" },
+              { value: "right", label: "Right" },
+            ]}
+          />
+          <Field label="Caption" hint="italic line below">
+            <TextInput value={p.caption} onChange={(caption) => set({ caption })} />
+          </Field>
+          <Field label="Wrapping link" hint="optional">
+            <TextInput
+              value={p.linkUrl}
+              onChange={(linkUrl) => set({ linkUrl })}
+              mono
+              placeholder="https://…"
+            />
+          </Field>
+        </>
+      ) : null}
+
+      {p.layout === "split" ? (
+        <>
+          <Field label="Image URL" className="min-w-0">
+            <TextInput value={p.url} onChange={(url) => set({ url })} mono placeholder="https://…" />
+            <ImageThumb url={p.url} height={70} />
+          </Field>
+          <Grid cols={2}>
+            <Field label="Alt text">
+              <TextInput value={p.alt} onChange={(alt) => set({ alt })} />
+            </Field>
+            <Field label="Caption" hint="under the image">
+              <TextInput value={p.caption} onChange={(caption) => set({ caption })} />
+            </Field>
+          </Grid>
+          <Field label="Text" hint="markdown; it sits in the column beside the image">
+            <TextArea
+              rows={5}
+              value={p.text}
+              onChange={(text) => set({ text })}
+              placeholder={"**What it does**\n\nPoint at the screenshot while you say it."}
+            />
+          </Field>
+        </>
+      ) : null}
+
+      {isRow && items.length === 0 ? (
+        // The list is empty, so the block-level image is what actually renders.
+        // Show it instead of an empty list sitting above a picture the user has
+        // no way to reach, edit, or understand.
+        <Field label="Row image" hint="the list is empty, so this image is what renders">
+          <TextInput value={leadUrl} onChange={(url) => set({ url })} mono placeholder="https://…" />
+          <ImageThumb url={leadUrl} height={56} />
+        </Field>
+      ) : null}
+
+      {isRow || p.layout === "split" ? (
+        <ListEditor
+          items={items}
+          onChange={(items) => set({ items })}
+          create={emptyShot}
+          singular="Image"
+          titleOf={(item, index) =>
+            // Numbered first: two rows that both read "Screenshot" are not a
+            // label, they are a coin flip for a keyboard user and for a test.
+            `Image ${index + 1} — ${item.alt.trim() || item.url.trim().split("/").pop() || "no URL"}`
+          }
+          render={shotFields}
+        />
+      ) : null}
+
+      {isRow ? (
+        p.layout === "gallery" ? (
+          <Segmented
+            label="Per row"
+            value={p.columns}
+            onChange={(columns) => set({ columns })}
+            options={[
+              { value: 2, label: "2 across" },
+              { value: 3, label: "3 across" },
+            ]}
+          />
+        ) : (
+          <Field label="Width per image" hint="rows keep your pixel width; galleries let the column set it">
+            <NumberInput
+              value={p.width}
+              onChange={(width) => set({ width })}
+              min={120}
+              max={2400}
+              step={20}
+              suffix="px"
+            />
+          </Field>
+        )
+      ) : null}
     </div>
   );
 }
@@ -719,7 +896,7 @@ function BadgesPanel({ block, set }: PanelProps<BadgesBlock>) {
             </Grid>
             <Field label="Image URL">
               <TextInput value={item.imageUrl} onChange={(imageUrl) => update({ imageUrl })} mono />
-              <UrlThumb url={item.imageUrl} height={24} />
+              <ImageThumb url={item.imageUrl} height={24} />
             </Field>
             <BadgeBuilder
               onApply={(imageUrl, alt) => {
@@ -1162,7 +1339,7 @@ function LinksPanel({ block, set }: PanelProps<LinksBlock>) {
               <TextInput value={item.description} onChange={(description) => update({ description })} />
             </Field>
             {imageBased ? (
-              <UrlThumb
+              <ImageThumb
                 url={shieldsUrl({
                   label: p.style === "buttons" ? item.label : "",
                   message: p.style === "buttons" ? "→" : "",

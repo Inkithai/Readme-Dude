@@ -80,7 +80,19 @@ export function sanitizeUrl(input: string | null | undefined): string {
     if (name === "data") return "";
     if (!allowed.has(name)) return "";
   }
-  return value.replace(/"/g, "%22").replace(/\s+/g, "%20");
+  // Angle brackets and backticks are not legal in a URL and are the three
+  // characters that can confuse the markup around it: a raw `">` inside
+  // `href="…"` survives HTML5 parsing but breaks every naive tool in the
+  // pipeline (markdown-it's own link scanner included), and a raw backtick can
+  // close an inline-code span if the URL is ever emitted that way. Percent-
+  // encode them; leave parentheses alone, markdown-it balances them (a
+  // Wikipedia `…_(disambiguation)` link must keep working, see escape.test.ts).
+  return value
+    .replace(/"/g, "%22")
+    .replace(/</g, "%3C")
+    .replace(/>/g, "%3E")
+    .replace(/`/g, "%60")
+    .replace(/\s+/g, "%20");
 }
 
 /** True when a URL was dropped by `sanitizeUrl` even though it was not empty. */

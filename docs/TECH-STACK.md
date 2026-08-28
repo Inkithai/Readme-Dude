@@ -1,6 +1,6 @@
 # Tech Stack Decision Record
 
-Status: **adopted — Phase 1 built** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
+Status: **adopted — Phases 1–3 built, Phase 4 in progress** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
 
 This document picks the stack for ReadMe Buddy (filed under its earlier name, *ReadMe Studio*) and, more importantly, records *why* — so a
 future-you doesn't re-litigate it or silently drift into a worse choice.
@@ -12,12 +12,14 @@ Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measu
 
 ---
 
-## 0. Status: what Phases 1–2 actually ship
+## 0. Status: what Phases 1–4 actually ship
 
 Phase 1 (the roadmap's “Core README builder”) and Phase 2 (the “GitHub Markdown
-engine”) are implemented, with 196 tests covering the engine, the golden fixture, the
-store, preview fidelity and the mounted shell — plus 14 more that run against GitHub's
-own renderer when `GFM_FIDELITY=1` is set.
+engine”) are implemented, and Phase 3 (templates) is implemented as block compositions
+rather than Markdown files. 258 tests cover the engine, the presets, the golden
+fixtures, the store, preview fidelity and the mounted shell — plus 17 more that run
+against GitHub's own renderer when `GFM_FIDELITY=1` is set. Phase 3 added 62 of them,
+Phase 4's two designers 29 more, and Phase 4's fuzz-driven audit 14 more (301 in total).
 
 | Roadmap Phase 1 item | Where it lives |
 | --- | --- |
@@ -55,8 +57,12 @@ Deliberate deviations from §2, all of them "later, not never":
 | CSS grid instead of `react-resizable-panels` | Drag-resizable panes are polish, not capability. |
 | `localStorage` autosave, not Dexie | One debounced write-behind key is enough until Phase 6 introduces *projects*; `storage.ts` keeps the swap to IndexedDB to one file. |
 
-Measured result: boot chunk **131.3 kB gzip** (127.7 after Phase 1), lazy preview
-engine **180.5 kB gzip** — the §6 budget (≤ 200 kB on boot) still held after Phase 2.
+Measured result: boot chunk **135.6 kB gzip** (127.7 after Phase 1, 131.8 after
+Phase 2, 133.4 after Phase 3, +2.2 for the Phase 4 designers — they live in the
+property panel, which is first-paint), lazy preview engine **180.5 kB gzip**, lazy
+template gallery **22.4 kB gzip** — the §6 budget (≤ 200 kB on boot) still held,
+because twelve presets were deliberately pushed out of the boot chunk (finding 2
+under Phase 3).
 
 ### Phase 2 — the GitHub Markdown engine
 
@@ -96,6 +102,7 @@ because a red network test in a locked-down sandbox trains everyone to ignore th
 
 ### Audit — what a bug hunt found after Phase 2
 
+
 Nine real bugs, each with a test that used to pass. Ordered by how badly they failed:
 
 | bug | why it hid | the test |
@@ -116,6 +123,109 @@ relative image paths that walk up a directory (`../docs/img.png`) **are** reacha
 `isProbablyImageUrl` was widened instead of the new error being kept. Both were settled by
 asking GitHub's renderer rather than reasoning about it.
 
+### Phase 3 — presets, as block compositions
+
+The roadmap's one hard requirement here is the shape, not the count:
+`Template → Block configuration → Builder`, “not just Markdown files”. So
+`src/engine/templates/` emits `Block[]`, there is no `.md` file in the directory, and a
+preset enters the app through the same door a hand-built block does.
+
+| Item | What landed |
+| --- | --- |
+| 12 presets | 8 project — Minimal, Professional, Open Source, SaaS, CLI, Library, HTTP API, AI/ML — and 4 profile: Developer, Full, Minimal, Portfolio. `templates/project.ts`, `templates/profile.ts`. |
+| authoring kit | `templates/build.ts`: `tpl()` merges props onto `createBlock` defaults, and `badge()` / `socialBadge()` / `cardRow()` / `brand()` / `brandGroup()` build the repetitive nested props. Twelve presets written as raw object literals would have been a typo factory; the helpers are what make the content reviewable. |
+| registry | `templates/index.ts`: `TEMPLATES`, `TEMPLATES_BY_ID`, `getTemplate`, `templatesForKind`, `blocksFromTemplate` (re-`identify`s, so applying a preset twice never collides on ids), `previewTemplate`. Pure data + functions — the gallery and the roadmap's prerendered marketing site read the same module. |
+| document kind | `DocumentSchema.kind: "project" \| "profile"`, default `project`, version still **1**. A profile README is a different *document*, not a template family: it is what lets `no-examples` stay a project rule instead of being loosened for everyone, and it gives the profile presets their own two info-level checks. Legacy `.json` without `kind` still loads. |
+| applying | `store/document.ts` → `applyTemplate(template, "replace" \| "append")`: blocks, document name and kind change in one transition, so a single ⌘Z undoes the whole thing; `replaceBlocks` grew a third argument rather than growing a second action. |
+| gallery | `src/ui/palette/TemplateGallery.tsx`, behind a Blocks/Templates rail tab: family filter, section chips, “what you get”, and a `<details>` peek at the Markdown — produced by the real `compileDocument`, not a screenshot of it, so it cannot drift. |
+| tests | `engine/__tests__/templates.test.ts` (budgets, every preset parses through `BlockSchema`, every prop key exists on its block, every brand resolves in `tech-brands.json`, every preset compiles to **zero** validation issues, factory purity, 2 goldens), `store/__tests__/templates.test.ts`, `ui/__tests__/templates.test.tsx`, `engine/__tests__/boundary.test.ts`. |
+
+Four findings worth keeping:
+
+1. **The validator was reading fenced code as document structure.** `professional-project`
+   put a `# comment` line inside an `ini` block (`.env.example`) and got a
+   `heading-skip` error; the same class of bug produced a `duplicate-anchor` from a heading
+   written inside an HTML comment and a `table-column-mismatch` from two tables bucketed
+   together across everything between them. `validate.ts` now routes every whole-document
+   rule through `proseLines()`, which drops fenced regions once, up front; the rules that
+   *want* raw text (`unbalanced-fence`, `no-examples`) read it on purpose. This is the
+   Phase 4 importer's bug too, fixed before it arrives.
+2. **Presets are content, and content belongs in a lazy chunk.** Re-exporting `./templates`
+   from `engine/index.ts` cost **+22.6 kB gzip on the boot chunk** (131.8 → 154.4): the
+   barrel is imported by everything, and a module-scope `Map` in the registry made the
+   presets unshakable, so `React.lazy` in the UI alone recovered nothing. Not re-exporting
+   them (import `engine/templates` directly), lazily mounting the gallery, and letting the
+   store hold only the `Template` *type* brings boot back to 133.4 kB with the presets in a
+   22.4 kB chunk fetched on click. `boundary.test.ts` pins all three decisions, because the
+   regression is invisible in the app and visible only in a build log.
+3. **Preset identity is placeholders, on purpose.** Every profile stat, streak, trophy and
+   graph URL points at `your-username`, and projects at `your-org/your-repo` /
+   `*.acme.dev`. A preset that shipped someone else's real star count would read as the
+   user's own the moment it was applied; a fake number in a template is a defect, not polish.
+4. **A brand name that is not in `src/data/tech-brands.json` silently loses its icon.**
+   `brand()` degrades to a plain shields.io badge by design, so `Prometheus`, `Grafana` and
+   `SQL` — all tempting for these presets, none of them in the generated table — would have
+   shipped as unexplained ugliness. `templates.test.ts` now asserts every tech-stack and
+   logo name resolves, which turns “check 151 names by eye” into a one-line expectation.
+
+### Phase 4 (started) — the designers, beginning with layout
+
+Two of the five designers, chosen because they are where `src/engine/` had to change
+rather than only the panel JSX. The point of the phase is the promise in §2: a block
+carries its *presentation* in its props, so a designer is a control surface, not a
+second rendering path.
+
+| Item | What landed |
+| --- | --- |
+| `image` block | Now a layout block: `layout: single \| columns \| gallery \| split` × `columns: 2 \| 3`, `items: { url, alt, caption, link }[]`, and `text` for the side-by-side form. Rows emit `<table>` cells at your pixel width, galleries at `width="100%"`, `split` a 55/45 table with `valign="top"`. Reuses the exact HTML pattern `features` cards already established, so the sanitizer allow-list and the fidelity rules did not have to grow. |
+| `hero` block | `imageUrl` / `imageWidth` / `imageAlt` — a banner between tagline and buttons, inside the `<div align>` wrapper so it centres itself. |
+| Layout pickers | `src/ui/designer/kit.tsx`. Thumbnails drawn with divs, not images or icon fonts: a picture of a layout goes stale the moment the compiler changes, and the div version renders offline, in jsdom and in a prerendered marketing page. `ImageThumb` moved here from `blockEditors` and is now shared by hero, screenshot and links. |
+| Degrade rules | A half-filled block never loses the half that is filled: `split` with no image renders the prose, `split` with no prose renders the image, `single` with an empty `url` falls back to the first item. Once `items` exists it is *authoritative* — a row may not show an image the panel does not list. |
+| Checks | New `image-no-source` warning for a Screenshot block that compiles to nothing, using the same precedence as the compiler, so the two can never disagree about whether anything was drawn. |
+| Legacy data | No migration: `layout`/`columns`/`items` all default, so a Phase 1–2 `.json` still opens as a centred single image. `url` stopped being `.min(1)` (also for item URLs) — an in-progress image must not invalidate the block, or the document refuses to reload with one empty slot in it. |
+| a11y | `Segmented`'s `aria-labelledby` pointed at an id that was never rendered on the label `<span>`: every segmented group in the app was an *unnamed* radiogroup. Fixed in `Fields.tsx`; `LayoutPicker` got the same association from the start. |
+
+Test note worth repeating: `validateDocument` short-circuits with `empty-document` when
+the Markdown is empty, so a test for "this block renders nothing" must put the block
+beside another one — otherwise it asserts the document-level error and learns nothing.
+
+
+### Audit — what a fuzz pass found after Phase 4
+
+The Phase 2 audit was hand-written: nine bugs, each with a test. This one started from the
+same list of suspects and then stopped trusting it — `engine/__tests__/invariants.test.ts`
+walks **every field of every block** and replaces it with junk (`null`, `"junk"`, `{}`,
+`[]`, `999999`, `NaN`, an `<img onerror>` payload, a 400-char string, an odd number of
+backticks), ~700 blocks in total, asserting five properties. Half the findings below were
+not on the suspect list; they are the ones the fuzz turned up on the first run.
+
+| bug | why it hid | the test |
+| --- | --- | --- |
+| **One malformed block took the whole preview pane down.** `validate.ts` read `block.props.items`, `.steps`, `.columns` directly; a `props: null` or `items: {}` threw out of `validateDocument`, which runs on every render. | the validator was only ever fed zod-clean blocks, and the per-block *compiler* hardening from the last audit never covered the checker that reports on it | `invariants` + `robustness` → "survives props that are not an object at all" |
+| **The compiler's totality contract had a hole exactly one level up.** `withProps` cast `block.props` and used it, so all fifteen blocks threw on a non-object `props` — the guard comment back in place of the user's section. | the last audit hardened *missing keys* (`p.foo` undefined), not a missing *object* | same |
+| **`patchProps` stranded a broken block.** `Object.assign(block.props, patch)` threw when `props` was not an object, so the one action that could repair a malformed block was the one that failed. | an onClick that throws looks like a dead button, not a data bug | `store` → "recovers a block whose props are not an object when it is edited" |
+| **`sanitizeUrl` encoded `"` but not `<`, `>` or a backtick**, so junk reached the exported README as `href="%22><img…>"` — inert under HTML5, and a problem for every tool after us, including our own `rehype-raw` pass. | the scheme test was the interesting part, so the encoding tail was never revisited | `escape` → "encodes the characters that could open markup inside an attribute" |
+| **The preview lied about the split layout**: `valign` was not in the sanitizer's allow-list for `td`, so text sat mid-cell in the pane whose job is to show what github.com will do. | the same failure mode as the alert bug two audits ago, and no compiler test could see it | `designers` → "image + text puts the prose in the second cell"; `FIDELITY_CASES` now pins all three screenshot layouts against **both** renderers |
+| **`hero.logoWidth` was emitted raw**: `width="${Number(p.logoWidth) \|\| 96}"`, so the slider's max and the schema's `max(1000)` were suggestions — a hand-edited `99999` shipped a README with a 99999-pixel logo. | every *other* width in the engine was clamped, which is how the invariant caught this one by contrast | `screenshots` → "clamps a logo width the way it clamps every other number" |
+| **Deleting the last image in a row silently resurrected the block-level one.** The compiler falls back to `url` while `items` is empty (that is what makes switching layout mid-edit safe), but the panel had no field for it: an empty list above a picture you could neither see nor remove. | a degrade path that is correct in the engine and misleading in the UI | `designers` → "keeps the block image reachable while a row has no items" |
+
+Two things about the method, because they are why it found anything:
+
+1. **Assert the breakout condition, not the scary substring.** The first draft banned
+   `onerror` from any output and failed on a percent-encoded URL that merely *spells* it —
+   theatre, not a safety property. What matters is "a field may not put a quote or an angle
+   bracket inside an attribute value", and that holds for every block.
+2. **Only the rules that can only be our fault.** Junk mutations paste half-written Markdown
+   into body fields on purpose, so `table-cells-dropped` and `img-not-self-closed` fire
+   correctly on *user* content. The invariant asserts the structural set — unbalanced tags,
+   fences, `<details>` swallowing the document — where a failure is always the compiler's.
+
+The oracle ran here, once: `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts` → 17 rules green
+against GitHub's renderer. Node's own TLS store rejects the sandbox's intercepting
+certificate while `curl` accepts it, which is how the missing `valign` was *confirmed*
+instead of argued about.
+
 ---
 
 ## 1. The requirements that actually decide this
@@ -129,7 +239,7 @@ Reading the roadmap, six constraints do all the work. Everything else is taste.
 | C3 | "The generated Markdown must remain **valid**" for GFM (Pillar 3) | The compiler must be **string-building you own** (not a generic AST stringifier), and it needs golden-file tests against real GitHub rendering. |
 | C4 | "Live **GitHub-style** preview" + "Raw Markdown view" (both 🔴 MVP) | You need a Markdown→DOM renderer with **GitHub's own stylesheet** and GFM/alerts/HTML extensions. Rendering ≠ generating; keep them separate. |
 | C5 | Drag & drop, duplicate, hide/show, **undo/redo** (all 🔴 MVP) | Undo/redo is a state-management problem, not a UI problem. Pick state tech that has it *built in*. |
-| C6 | Design control: hero variants, feature-card layouts, badge designer, image layouts (Phase 4) | Layout variants are **props on blocks**, so the block props need a *variant* dimension from day one — this is a data-modeling decision, not a library one. |
+| C6 | Design control: hero variants, feature-card layouts, badge designer, image layouts (Phase 4) | Layout variants are **props on blocks**, so the block props need a *variant* dimension from day one — this is a data-modeling decision, not a library one. Held up in Phase 4: adding four screenshot arrangements and a hero banner was `schema` + `compile` + a panel, and the compiler's per-block `try/catch` contract meant nothing else had to know. |
 | C7 | IndexedDB for larger projects, autosave, version history (Phase 6) | A promise-based IndexedDB wrapper, not `localStorage` strings. |
 
 The single most consequential inference from C2: **this is a property-panel application, not a
@@ -186,10 +296,14 @@ src/
       validate.ts          lint the output (unclosed fences, orphan <details>, ...)
     parse/                 Phase 5
       from-markdown.ts     mdast → Block[]
-    templates/             .ts files that emit Block[], never .md files
+    templates/             ✅ built in Phase 3: .ts files that emit Block[], never .md
+                           (types/build/project/profile/index — imported as engine/templates,
+                            NOT re-exported from engine/index.ts; see Phase 3 finding 2)
   ui/
     editor/                property panels (forms), one per block type
     canvas/                sortable block list, hide/dup/delete controls
+    designer/              Phase 4: the layout pickers and live thumbs shared by every
+                           property panel (CSS-drawn thumbnails, no image requests)
     preview/               the react-markdown pipeline, lazy-loaded
     shell/                 three-pane layout, toolbar, command palette (Phase 10)
   store/
@@ -439,6 +553,15 @@ const CodeEditor = lazy(() => import("./editor/CodeEditor"));
 Budget to hold: **≤ 200 kB gzip on the boot chunk**, ≤ 2 s interactive on cold 4G. If a library
 pushes you past that, lazy-load it or lose it.
 
+And the boot chunk's actual history, measured with `npm run build` per phase (the phase's own
+number vs. a worktree of the commit before it, so the delta is honest):
+
+| After | boot chunk, gzip | what moved it |
+| --- | --- | --- |
+| Phase 1 | 127.7 kB | shell, palette, editor, store, compiler |
+| Phase 2 | 131.8 kB | sanitizer allow-lists, alert + table rules, the validator |
+| Phase 3 | **133.4 kB** | `kind`, the rail tab — and *nothing else*, on purpose. Twelve presets plus the brand table are **22.4 kB gzip** that live in a lazy `TemplateGallery` chunk; importing them through `engine/index.ts` put the boot chunk at 154.4 kB and no amount of `React.lazy` downstream got it back (Phase 3, finding 2). |
+
 ---
 
 ## 7. What deliberately does **not** get a dependency
@@ -452,6 +575,9 @@ Aligned with roadmap §9 ("What I would NOT build initially"):
 - **No form library** (TanStack Form / react-hook-form). Zustand + Zod is already the form engine;
   blocks are small enough that per-field `patch()` beats a form-state abstraction.
 - **No Storybook.** The templates *are* the visual test matrix; keep a `/?debug=all-blocks` page.
+  Phase 3 shipped that matrix: twelve presets × fifteen block types, each compiled and run through
+  `validateDocument` in `engine/__tests__/templates.test.ts`, and the gallery is its human-facing
+  half. A preset that renders badly is a failing test, not a design review.
 - **No CSS-in-JS** alongside Tailwind (pick one; Tailwind).
 - **No chart/diagram library** (Mermaid is user-supplied code fences, not your dependency).
 - **No analytics SDK** at MVP — one `navigator.sendBeacon` shim later, respecting the "no backend"

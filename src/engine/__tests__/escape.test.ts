@@ -159,4 +159,20 @@ describe("image reachability", () => {
     expect(isProbablyImageUrl("docs/img/shot.png")).toBe(false);
     expect(isProbablyImageUrl(null as unknown as string)).toBe(false);
   });
+
+  it("encodes the characters that could open markup inside an attribute", () => {
+    // `"` alone was never enough: a raw `>` in a URL sits inside `href="…"` and
+    // every tool downstream of us — including our own preview's raw-HTML parser
+    // and any markdown linter — has to decide whether that is a tag. Encoding
+    // is the only answer that is correct in all of them at once.
+    expect(sanitizeUrl(`https://a.test/x"><script>alert(1)</script>`)).toBe(
+      "https://a.test/x%22%3E%3Cscript%3Ealert(1)%3C/script%3E",
+    );
+    expect(sanitizeUrl("https://a.test/`tick`")).toBe("https://a.test/%60tick%60");
+    // Parentheses stay: markdown-it balances them, and `…_(foo)` is a real URL.
+    expect(sanitizeUrl("https://en.wikipedia.org/wiki/Foo_(bar)")).toBe(
+      "https://en.wikipedia.org/wiki/Foo_(bar)",
+    );
+    expect(sanitizeUrl("./docs/a.png")).toBe("./docs/a.png");
+  });
 });

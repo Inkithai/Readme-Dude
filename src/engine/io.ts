@@ -1,4 +1,12 @@
-import { type Block, BlockSchema, DocumentSchema, newBlockId, type ReadmeDocument } from "./schema";
+import {
+  type Block,
+  BlockSchema,
+  type DocumentKind,
+  DocumentSchema,
+  isDocumentKind,
+  newBlockId,
+  type ReadmeDocument,
+} from "./schema";
 
 /* ------------------------------------------------------------------ *
  * engine/io.ts — the .json project format (save / restore / import).
@@ -14,13 +22,23 @@ export interface ParseResult {
   errors: string[];
 }
 
-export function serializeDocument(name: string, blocks: Block[]): string {
-  return JSON.stringify({ version: 1, name, blocks } satisfies ReadmeDocument, null, 2);
+/**
+ * `kind` is optional so every pre-Phase-3 caller keeps working; a document
+ * with no kind *is* a project document, and the file on disk should say so
+ * rather than leave it to be inferred later.
+ */
+export function serializeDocument(name: string, blocks: Block[], kind: DocumentKind = "project"): string {
+  return JSON.stringify({ version: 1, name, kind, blocks } satisfies ReadmeDocument, null, 2);
 }
 
 export function parseDocument(raw: unknown): ParseResult {
   const errors: string[] = [];
-  const fallback = { version: 1 as const, name: "untitled", blocks: [] as Block[] };
+  const fallback = {
+    version: 1 as const,
+    name: "untitled",
+    kind: "project" as DocumentKind,
+    blocks: [] as Block[],
+  };
   if (!raw || typeof raw !== "object") {
     return { document: fallback, dropped: 0, errors: ["not a document object"] };
   }
@@ -53,7 +71,11 @@ export function parseDocument(raw: unknown): ParseResult {
       errors.push(`block #${i} ("${type}") did not match the schema`);
     }
   });
-  const nameResult = DocumentSchema.safeParse({ version: 1, name: source.name ?? "untitled", blocks });
+  // A missing or unrecognised `kind` is not worth a warning: documents written
+  // before Phase 3 have no such key, and a `kind` from a future version (say
+  // "changelog") must degrade to the project renderer, not refuse to open.
+  const kind: DocumentKind = isDocumentKind(source.kind) ? source.kind : "project";
+  const nameResult = DocumentSchema.safeParse({ version: 1, name: source.name ?? "untitled", kind, blocks });
   if (blocks.length === 0 && blocksIn.length > 0) {
     errors.push(
       `${blocksIn.length} block(s) were rejected by the current schema — the file may come from a newer version`,
@@ -70,7 +92,7 @@ export function parseDocumentJson(text: string): ParseResult {
     return parseDocument(JSON.parse(text));
   } catch (error) {
     return {
-      document: { version: 1, name: "untitled", blocks: [] },
+      document: { version: 1, name: "untitled", kind: "project", blocks: [] },
       dropped: 0,
       errors: [error instanceof Error ? error.message : "invalid JSON"],
     };

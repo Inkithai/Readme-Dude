@@ -82,13 +82,14 @@ function IssueRow({ issue, index }: { issue: Issue; index: number }) {
 
 export function PreviewPane({ markdown }: { markdown: string }) {
   const blocks = useBlocks();
+  const kind = useDocument((s) => s.kind);
   const [tab, setTab] = usePersistedTab();
   const [colorMode, setColorMode] = useState<"light" | "dark">("light");
   const [width, setWidth] = useState<Width>("fill");
   const [copied, setCopied] = useState(false);
   const [copyBlocked, setCopyBlocked] = useState(false);
 
-  const issues = useMemo(() => validateDocument(blocks, markdown), [blocks, markdown]);
+  const issues = useMemo(() => validateDocument(blocks, markdown, { kind }), [blocks, markdown, kind]);
   const counts = useMemo(() => summarizeIssues(issues), [issues]);
   const bytes = useMemo(() => utf8Bytes(markdown), [markdown]);
 

@@ -8,8 +8,9 @@ A visual GitHub README builder: compose blocks, choose how each section is
 presented, preview it like github.com, export Markdown. Frontend-only — no backend,
 no account, your document stays in your browser.
 
-> **Status: Phases 1–2 are implemented** — the core builder and the GitHub Markdown
-> engine. The rest of this document is the product roadmap they were built against.
+> **Status: Phases 1–3 are implemented** — the core builder, the GitHub Markdown engine,
+> and twelve templates that are block compositions rather than Markdown files. The rest of
+> this document is the product roadmap they were built against.
 > Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
 >
 > Renamed from *ReadMe Studio*; `localStorage` keys migrate on first load, so a
@@ -20,9 +21,10 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 196 tests (engine totality, golden fixture, store, fidelity, shell)
+npm test           # 301 tests (engine totality, block-invariant fuzz, presets, goldens, store, fidelity, shell)
 # GitHub's own renderer as an oracle (opt-in, needs network):
 #   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
+#   …behind a TLS-terminating proxy add: NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
 ```
 
@@ -31,11 +33,22 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 - **15 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
   Tech stack, Installation, Usage, License, Collapsible (`<details>`), Checklist
   (task lists), Links (buttons/pills/list) — each with its own property panel.
+- **Twelve templates** — 8 project (Minimal, Professional, Open Source, SaaS, CLI, Library,
+  HTTP API, AI/ML) + 4 profile (Developer, Full, Minimal, Portfolio). A template is *not* a
+  Markdown file: it is a `Block[]` produced by `src/engine/templates/*.ts`, so it goes through
+  the same zod parse, escaping, URL sanitizer and validator as anything you build by hand — and
+  every preset compiles to **zero** validation issues, which is an assertion, not a hope.
+  One-click from the `Templates` rail tab, replace or append, undoable, with the generated
+  Markdown previewable before you commit to it.
 - **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
   delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
-- **Layout choices, not just content**: hero alignment, five feature layouts
-  (bullets / numbered / icon+text / 2-col cards / 3-col cards), four tech-stack layouts,
-  per-column table alignment, GitHub alerts.
+- **Layout choices, not just content**: a Screenshot designer with five
+  arrangements (single, 2-column row, 3-column row, captioned gallery, image + text
+  side-by-side), hero alignment, five feature layouts (bullets / numbered / icon+text /
+  2-col cards / 3-col cards), four tech-stack layouts, per-column table alignment,
+  GitHub alerts. The layout pickers draw their thumbnails in CSS, so what you click is
+  the arrangement you get — and it renders offline, in tests, and in a prerendered
+  marketing page alike.
 - **Live GitHub preview** (`github-markdown-css` + GFM + alerts + sanitized HTML),
   a **raw Markdown** view, and a **per-block Markdown peek** so you can see what each
   block contributes to the export.
@@ -48,7 +61,11 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
   `javascript:`/`data:`/control-character URLs are dropped, not escaped, and reported.
 - **The compiler degrades, it never throws**: every block type compiles with missing,
   empty or junk-shaped fields (hand-edited JSON, a half-written import, a template that
-  forgot a key) — the guard suite is `src/engine/__tests__/robustness.test.ts`.
+  forgot a key). `robustness.test.ts` guards that by hand; `invariants.test.ts` guards it
+  by machine — every field of every block replaced with junk (~700 blocks) while five
+  properties are asserted: no throw, no leaked `NaN`/`[object`, no attribute value that can
+  open a tag, no numeric attribute outside the range GitHub honours, and no output the app's
+  own validator would reject.
 - **Honest status**: a blocked clipboard and a failed `localStorage` write both say so
   instead of showing green.
 - **Fidelity, tested twice**: one rule file (`src/engine/__tests__/fidelity-rules.ts`)
@@ -63,6 +80,38 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 Block (zod schema)  →  compile.ts (pure functions)  →  GitHub Flavored Markdown
                     ↘  react-markdown + github-markdown-css  →  preview
 ```
+
+## Templates
+
+A template is a `Block[]`, not a text file — `Template → Block configuration → Builder`,
+which is what makes an applied preset editable, undoable and safe in exactly the way a
+hand-composed document is.
+
+```text
+src/engine/templates/
+  types.ts      Template = { id, label, kind, blurb, docName, notes, blocks(): Block[] }
+  build.ts      tpl() · badge() · socialBadge() · cardRow() · brand() · brandGroup() · STATS_URLS
+  project.ts    minimal · professional · open-source · saas-product · cli · library · http-api · ai-ml
+  profile.ts    minimal · developer · full · portfolio
+  index.ts      TEMPLATES · getTemplate · templatesForKind · blocksFromTemplate · previewTemplate
+```
+
+- **`blocks()` is a function**, so every apply mints fresh ids and no two documents share a
+  mutable default: a preset is a factory, not a constant.
+- **It imports no React and no DOM**, like the rest of `src/engine/`, so the gallery and the
+  roadmap's prerendered marketing site read the same twelve presets. `engine/__tests__/boundary.test.ts`
+  enforces that with a specifier whitelist — prose rules rot, tests don't.
+- **Every preset is compiled and validated in the test suite** and must come back with zero
+  issues, which also makes the twelve presets the visual test matrix for all 15 block types
+  (this project has no Storybook by design).
+- **Placeholders are honest.** Projects are `your-org/your-repo` on `*.acme.dev`; profiles are
+  `your-username`. A preset that showed somebody else's real star count would read as yours.
+- `DocumentSchema` grew **`kind: "project" | "profile"`** — version stays 1, a file without the
+  key is a project. Profiles are a different *document*, and the kind is what stops the checker
+  from nagging a profile README about its missing License section.
+- **They ship as a lazy chunk.** Twelve presets plus the brand table are 22.4 kB gzip of
+  content, so `engine/index.ts` deliberately does not re-export them; opening the `Templates`
+  tab is the only time you pay. Numbers in [`docs/TECH-STACK.md`](docs/TECH-STACK.md) §6.
 
 ## Brand
 
@@ -532,6 +581,8 @@ Block configuration
 Builder
 ```
 
+Implemented as `src/engine/templates/*.ts` — see [Templates](#templates) above.
+
 ---
 
 # Phase 4 — Visual design system
@@ -593,6 +644,28 @@ Tools
 ```
 
 This turns the product from a **README editor** into a **README designer**.
+
+#### Built — Screenshot and Hero designers
+
+The designer is not a new rendering path; it is a *control surface* over block
+props, so everything still compiles through `compile.ts` and stays editable.
+
+| Designer | Status |
+| --- | --- |
+| Screenshot | ✅ `image` block became a layout block: `layout: single \| columns \| gallery \| split` × `columns: 2 \| 3`, a list of `{ url, alt, caption, link }` shots, per-row captions, click-through links. The five arrangements the roadmap names are five thumbnails, not five dropdown words. |
+| Hero | ✅ gained `imageUrl` / `imageWidth` / `imageAlt`: the logo says *who*, the banner says *what it looks like*, and the order in the output is logo → title → tagline → image → buttons. |
+| Badge | ⏳ the shields.io generator exists (`label`, `message`, colour, style); a per-badge editor that owns `logo`/`link`/`style` is next. |
+| Feature | ⏳ five layouts exist; an icon picker over the brand table is next. |
+| Tech stack | ⏳ grouped layout + brand picker exist; the five named buckets as first-class controls are next. |
+
+Two rules the phase had to settle, both in `engine/__tests__/screenshots.test.ts`:
+
+* **Rows keep your pixel width; galleries let the column set it.** Otherwise a
+  "gallery" and a "row of three" are the same thing with a different name.
+* **Once you have started the list, the list is authoritative.** The block-level
+  `url` is what a row shows before it has any items — after that it is not
+  allowed to render an image the panel does not show, and `Checks` says so when a
+  block would export as nothing.
 
 ---
 

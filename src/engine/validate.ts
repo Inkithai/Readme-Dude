@@ -1,5 +1,5 @@
 import { isProbablyImageUrl, isUnsafeUrl } from "./escape";
-import type { Block } from "./schema";
+import type { Block, DocumentKind } from "./schema";
 
 /* ------------------------------------------------------------------ *
  * engine/validate.ts — "GitHub correctness" as a feature.
@@ -32,7 +32,35 @@ function countFenceLines(md: string): { backtick: number; tilde: number } {
   return { backtick, tilde };
 }
 
-export function validateDocument(blocks: Block[], markdown: string): Issue[] {
+export interface ValidateOptions {
+  /**
+   * The document's `kind` (Phase 3). It only ever *adds* nudges — a profile
+   * README and a project README compile identically, because they use the same
+   * blocks, so the checks that differ are advice about the audience rather
+   * than rules about the syntax.
+   */
+  kind?: DocumentKind;
+}
+
+/**
+ * `props` is typed as an object, but nothing on this path re-validates it:
+ * `patchProps`, `insertBlock` and `replaceBlocks` write straight into the
+ * model, and the Checks tab runs on every render. Reading a key off `null` here
+ * would not lose a warning, it would take the whole preview pane down — so the
+ * validator is as tolerant as the compiler it reports on.
+ */
+/** Array fields can arrive as `{}` or `"junk"` from the same unvalidated path. */
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function propsOf(block: Block): Record<string, unknown> {
+  const props = block.props;
+  if (typeof props !== "object" || props === null || Array.isArray(props)) return {};
+  return props as unknown as Record<string, unknown>;
+}
+
+export function validateDocument(blocks: Block[], markdown: string, options: ValidateOptions = {}): Issue[] {
   const issues: Issue[] = [];
   const push = (issue: Issue) => issues.push(issue);
 
@@ -83,9 +111,13 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   }
 
   // 3. Images must be publicly reachable relative to github.com.
+  // Only the *image* keys are checked: a badge's `linkUrl` is a link, and
+  // `mailto:` is a perfectly good one (a profile preset that linked its email
+  // badge was being reported as an unresolvable image).
   const imageish = blocks.filter((b) => b.type === "image" || b.type === "hero" || b.type === "badges");
   for (const block of imageish) {
-    for (const u of collectUrls(block)) {
+    for (const u of collectUrls(block, /^(url|imageurl|logourl|src)$/i)) {
+      if (/^(mailto|tel):/i.test(u)) continue;
       if (!u) continue;
       if (!isProbablyImageUrl(u)) {
         push({
@@ -99,13 +131,38 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
     }
   }
 
+  // 3b. A Screenshot block can be schema-valid and still draw nothing: every
+  // URL empty, or all of them refused by the sanitizer. Since the block then
+  // vanishes from the export without an error, say so here. `split` is exempt
+  // when it carries prose — that half renders on its own.
+  for (const block of blocks) {
+    if (block.type !== "image") continue;
+    const props = propsOf(block);
+    // Same precedence as the compiler: a row you have started is
+    // authoritative, so the block-level URL hiding under it is not a source.
+    const items = Array.isArray(props.items) ? (props.items as { url?: unknown }[]) : [];
+    const sources = items.length > 0 ? items.map((item) => item?.url) : [props.url];
+    const usable = sources.some((value) => typeof value === "string" && value.trim() && !isUnsafeUrl(value));
+    if (usable) continue;
+    const prose = typeof props.text === "string" ? props.text.trim() : "";
+    if (props.layout === "split" && prose) continue;
+    push({
+      level: "warning",
+      rule: "image-no-source",
+      message: "This Screenshot block has no usable image URL, so it renders nothing.",
+      blockId: block.id,
+      fix: "Add an https:// image URL, or remove the block.",
+    });
+  }
+
   // 4. Raw HTML tags users paste must balance.
+  const prose = proseLines(markdown).join("\n");
   for (const tag of ["details", "summary", "table", "p", "div", "a", "img"]) {
-    const open = countMatches(markdown, new RegExp(`<${tag}(\\s|>)`, "g"));
-    const close = countMatches(markdown, new RegExp(`</${tag}>`, "g"));
+    const open = countMatches(prose, new RegExp(`<${tag}(\\s|>)`, "g"));
+    const close = countMatches(prose, new RegExp(`</${tag}>`, "g"));
     if (tag === "img") {
-      const selfClosed = countMatches(markdown, /<img\b[^>]*\/>/g);
-      const bare = countMatches(markdown, /<img\b(?![^>]*\/>)[^>]*>/g);
+      const selfClosed = countMatches(prose, /<img\b[^>]*\/>/g);
+      const bare = countMatches(prose, /<img\b(?![^>]*\/>)[^>]*>/g);
       if (bare > selfClosed) {
         push({
           level: "info",
@@ -127,10 +184,11 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   }
 
   // 5. GFM tables need every row to have the same cell count.
-  const tableLines = markdown
-    .split("\n")
-    .map((line, i) => ({ line, i }))
-    .filter((x) => x.line.trim().startsWith("|"));
+  // Rows are grouped into *contiguous* runs, because a document can hold two
+  // unrelated tables (a model card and a benchmark table, say): comparing one
+  // table's width against the next table's width is not a finding, it is a bug.
+  // Fenced lines are skipped for the same reason — a README that *documents*
+  // pipe tables inside ``` fences is not a broken README.
   let run: number[] = [];
   const flush = () => {
     if (run.length > 1 && new Set(run).size > 1) {
@@ -143,7 +201,11 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
     }
     run = [];
   };
-  for (const { line } of tableLines) {
+  for (const line of proseLines(markdown)) {
+    if (!line.trim().startsWith("|")) {
+      flush();
+      continue;
+    }
     const cells = line
       .trim()
       .replace(/^\|/, "")
@@ -161,7 +223,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   // never fires is worse than no rule, because it reads like coverage.
   const LABEL_KEYS = new Set(["title", "text", "summary", "label", "alt"]);
   for (const block of blocks) {
-    for (const [key, value] of Object.entries(block.props as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(propsOf(block))) {
       if (typeof value !== "string" || !LABEL_KEYS.has(key)) continue;
       if ((value.match(/(?<!\\)\*\*/g)?.length ?? 0) % 2 !== 0) {
         push({
@@ -191,13 +253,18 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
     // Hero buttons are the same shape and the same mistake, so they are checked
     // here too — the compiler drops them rather than emitting `href=""` (an
     // empty anchor *is* clickable on GitHub: verified, and it is a dead button).
-    const linky = block.props as {
+    const linky = propsOf(block) as {
       items?: { url?: string; label?: string }[];
       buttons?: { url?: string; label?: string }[];
     };
-    const items = [...(linky.items ?? []), ...(linky.buttons ?? [])];
+    const items = [
+      ...asArray<{ url?: string; label?: string }>(linky.items),
+      ...asArray<{ url?: string; label?: string }>(linky.buttons),
+    ];
     for (const item of items) {
-      if (item.label && !(item.url ?? "").trim()) {
+      // `item?.` because a hand-edited list can hold a `null` slot, and a
+      // validator that throws takes the preview pane with it.
+      if (item?.label && !(item.url ?? "").trim()) {
         push({
           level: "error",
           rule: "link-without-url",
@@ -212,7 +279,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   // 8. Alerts: GitHub only styles the five known types, anything else renders as
   // literal text inside a blockquote — loudly wrong and easy to typo.
   const ALERTS = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"];
-  for (const match of markdown.matchAll(/^>\s*\[!([A-Za-z]+)\]/gm)) {
+  for (const match of prose.matchAll(/^>\s*\[!([A-Za-z]+)\]/gm)) {
     const type = (match[1] ?? "").toUpperCase();
     if (!ALERTS.includes(type)) {
       push({
@@ -228,7 +295,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   // raw syntax. (Our Collapsible block inserts it; a hand-written Text body may not.)
   const pasted = blocks.filter((b) => b.type === "text");
   for (const block of pasted) {
-    const body = String((block.props as Record<string, unknown>).body ?? "");
+    const body = String(propsOf(block).body ?? "");
     if (/<\/summary>\s*\n(?!\s*\n)\s*[^<\s]/.test(body)) {
       push({
         level: "warning",
@@ -242,8 +309,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
 
   // 10. Heading anchors: GitHub dedupes by appending -1, so a duplicate is a
   // broken cross-reference, and a skipped level is a broken outline.
-  const headings = markdown
-    .split("\n")
+  const headings = proseLines(markdown)
     .map((line) => /^(#{1,6})\s+(.*)$/.exec(line))
     .filter((m): m is RegExpExecArray => m !== null)
     .map((m) => ({ level: (m[1] ?? "").length, text: (m[2] ?? "").trim() }));
@@ -279,7 +345,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   }
 
   // 11. Links whose target is empty break silently.
-  for (const match of markdown.matchAll(/\[([^\]]*)\]\(\s*\)/g)) {
+  for (const match of prose.matchAll(/\[([^\]]*)\]\(\s*\)/g)) {
     push({
       level: "error",
       rule: "empty-link-target",
@@ -294,7 +360,7 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
   // author, which is exactly what this list is for.
   for (const block of blocks) {
     if (block.type !== "table") continue;
-    const p = block.props as { columns?: unknown[]; rows?: unknown[][] };
+    const p = propsOf(block) as { columns?: unknown[]; rows?: unknown[][] };
     const width = Array.isArray(p.columns) ? p.columns.length : 0;
     if (width === 0) continue;
     const rows = Array.isArray(p.rows) ? p.rows : [];
@@ -312,6 +378,8 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
     }
   }
 
+  const kind = options.kind ?? "project";
+
   // 12. Helpful nudges, not errors.
   if (!blocks.some((b) => !b.hidden && (b.type === "hero" || b.type === "heading"))) {
     push({
@@ -321,8 +389,52 @@ export function validateDocument(blocks: Block[], markdown: string): Issue[] {
       fix: "Start most READMEs with a title block.",
     });
   }
-  if (!/```/.test(markdown) && !blocks.some((b) => b.type === "installation" || b.type === "usage")) {
+  // The "no code samples" nudge is advice for a *project* README. A profile
+  // page has nothing to install, and telling it so on every apply made the
+  // preset gallery's four profile cards arrive pre-flagged.
+  if (
+    kind === "project" &&
+    !/```/.test(markdown) &&
+    !blocks.some((b) => b.type === "installation" || b.type === "usage")
+  ) {
     push({ level: "info", rule: "no-examples", message: "No code samples or Usage/Installation blocks." });
+  }
+
+  /* ---- Phase 3: the document's `kind` changes the advice, never the output. ---- */
+
+  const shown = blocks.filter((b) => !b.hidden);
+  if (kind === "profile") {
+    // A profile README is read by a person deciding whether to follow or hire;
+    // "how to install this" means a project section was pasted in by mistake.
+    const strays = shown.filter((b) => b.type === "installation" || b.type === "license");
+    if (strays.length > 0) {
+      push({
+        level: "info",
+        rule: "profile-project-sections",
+        message: `${strays.length} section(s) — ${strays.map((b) => b.type).join(", ")} — read like a project README, not a profile.`,
+        blockId: strays[0]?.id,
+        fix: "Profile READMEs are about you: keep them if you mean it, delete them otherwise.",
+      });
+    }
+    // The one thing a profile page must do is let someone reach you.
+    const reaches = shown.some((b) => {
+      const p = propsOf(b) as {
+        items?: { linkUrl?: string; url?: string }[];
+        buttons?: { url?: string; linkUrl?: string }[];
+      };
+      return [
+        ...asArray<{ url?: string; linkUrl?: string }>(p.items),
+        ...asArray<{ url?: string; linkUrl?: string }>(p.buttons),
+      ].some((i) => (i?.url ?? "").trim() || (i?.linkUrl ?? "").trim());
+    });
+    if (!reaches) {
+      push({
+        level: "info",
+        rule: "profile-no-contact",
+        message: "Nothing in this profile links out — no socials, no email, no site.",
+        fix: "Add a Links block, or a Badges block with a link on each badge.",
+      });
+    }
   }
 
   return issues;
@@ -332,23 +444,50 @@ function countMatches(input: string, re: RegExp): number {
   return (input.match(re) ?? []).length;
 }
 
+/**
+ * The Markdown with fenced code blocks removed — i.e. the lines GitHub actually
+ * *parses*. Whole-document regexes over the raw text count a `# comment` inside
+ * an ini sample as a heading and a `<details>` inside an HTML example as an
+ * unbalanced tag; the Phase 3 presets, which ship commented config snippets,
+ * tripped both. Every structural rule below runs on this.
+ */
+function proseLines(markdown: string): string[] {
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const line of markdown.split("\n")) {
+    const opener = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (opener) {
+      const marker = (opener[1] ?? "")[0] ?? "";
+      if (fence === null) fence = marker;
+      else if (marker === fence) fence = null;
+      continue;
+    }
+    if (fence === null) out.push(line);
+  }
+  return out;
+}
+
 function readBody(block: Block): string {
-  const props = block.props as unknown as Record<string, unknown>;
+  const props = propsOf(block);
   if (block.type === "text") return String(props.body ?? "");
   if (block.type === "installation") {
-    return ((props.steps as { body: string }[]) ?? []).map((s) => s?.body ?? "").join("\n");
+    return asArray<{ body?: string }>(props.steps)
+      .map((s) => s?.body ?? "")
+      .join("\n");
   }
   if (block.type === "usage") {
-    return ((props.examples as { body: string }[]) ?? []).map((s) => s?.body ?? "").join("\n");
+    return asArray<{ body?: string }>(props.examples)
+      .map((s) => s?.body ?? "")
+      .join("\n");
   }
   return "";
 }
 
-function collectUrls(block: Block): string[] {
+function collectUrls(block: Block, only?: RegExp): string[] {
   const found: string[] = [];
   const walk = (value: unknown, key = ""): void => {
     if (typeof value === "string") {
-      if (/url|src|image/i.test(key)) found.push(value);
+      if (only ? only.test(key) : /url|src|image/i.test(key)) found.push(value);
       return;
     }
     if (Array.isArray(value)) {
@@ -359,13 +498,13 @@ function collectUrls(block: Block): string[] {
       for (const [k, v] of Object.entries(value)) walk(v, k);
     }
   };
-  walk(block.props);
+  walk(propsOf(block));
   return found;
 }
 
 function countOddFence(block: Block): boolean {
   if (block.type !== "code") return false;
-  const props = block.props as unknown as Record<string, unknown>;
+  const props = propsOf(block);
   return /^ {0,3}`{3,}/m.test(String(props.body ?? ""));
 }
 

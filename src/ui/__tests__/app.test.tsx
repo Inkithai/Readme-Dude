@@ -178,7 +178,10 @@ describe("ReadMe Buddy shell", () => {
     // Scoped: the palette's Collapsible hint says "<details>" too, so an
     // unscoped text query is ambiguous here on purpose of the copy, not by accident.
     const source = await waitFor(() => {
-      const el = within(screen.getByRole("tabpanel")).getByText(/<details>/);
+      // Named: the left rail has a tabpanel of its own now (Blocks/Templates),
+      // so an unscoped query is ambiguous — and naming it also asserts we are
+      // looking at the Markdown tab, not the preview.
+      const el = within(screen.getByRole("tabpanel", { name: "Markdown" })).getByText(/<details>/);
       expect(el.textContent).toContain("- [x] Install the package");
       expect(el.textContent).toContain("img.shields.io/badge/");
       return el;

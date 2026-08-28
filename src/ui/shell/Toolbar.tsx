@@ -5,13 +5,14 @@ import {
   FileDown,
   FolderOpen,
   HardDriveUpload,
+  LayoutTemplate,
   Redo2,
   RotateCcw,
   Trash2,
   Undo2,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { serializeDocument } from "@/engine";
+import { DOCUMENT_KINDS, type DocumentKind, serializeDocument } from "@/engine";
 import {
   copyToClipboard,
   downloadText,
@@ -68,6 +69,44 @@ function SaveIndicator() {
   );
 }
 
+/**
+ * Which kind of README this is. Kept deliberately small and next to the title,
+ * because `kind` is a property of the document, not a view mode: it picks the
+ * preset family and the profile nudges in Checks, and it is written into the
+ * exported .json. It changes no byte of the Markdown — the same blocks compile
+ * the same way either way, which is the point of the seam.
+ */
+function DocKindPicker() {
+  const kind = useDocument((s) => s.kind);
+  const setKind = useDocument((s) => s.setKind);
+  return (
+    <span
+      role="radiogroup"
+      aria-label="Document kind"
+      className="hidden shrink-0 items-center gap-0.5 rounded-md border border-zinc-800 bg-zinc-950/60 p-0.5 sm:inline-flex"
+      title="Project or profile README — this picks the presets and the Checks advice, never the Markdown"
+    >
+      {DOCUMENT_KINDS.map((value) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-checked={kind === value}
+          onClick={() => setKind(value as DocumentKind)}
+          title={`${value === kind ? "This document is a" : "Treat this document as a"} ${value} README`}
+          className={`rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium capitalize transition-colors ${
+            kind === value
+              ? "bg-indigo-500/20 text-indigo-200"
+              : "text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-300"
+          }`}
+        >
+          {value}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export function Toolbar({
   markdown,
   onTogglePreviewPane,
@@ -77,8 +116,10 @@ export function Toolbar({
 }) {
   const name = useDocument((s) => s.name);
   const setName = useDocument((s) => s.setName);
+  const kind = useDocument((s) => s.kind);
   const blocks = useDocument((s) => s.blocks);
   const clearAll = useDocument((s) => s.clearAll);
+  const setRail = useDocument((s) => s.setRail);
   const importJson = useDocument((s) => s.importJson);
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
@@ -104,7 +145,7 @@ export function Toolbar({
           ReadMe <span className="text-indigo-300">Buddy</span>
         </span>
         <span className="hidden rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-zinc-500 uppercase lg:inline">
-          phase 2
+          phase 3
         </span>
       </div>
 
@@ -116,6 +157,7 @@ export function Toolbar({
           aria-label="Document name"
           className="w-full min-w-0 max-w-[16rem] rounded-md border border-transparent bg-transparent px-2 py-1 text-[12px] text-zinc-300 hover:border-zinc-800 focus:border-zinc-700 focus:bg-zinc-950 focus:outline-none"
         />
+        <DocKindPicker />
         <SaveIndicator />
       </div>
 
@@ -135,6 +177,15 @@ export function Toolbar({
         <Btn
           size="xs"
           variant="outline"
+          title="Open the preset gallery in the left rail"
+          onClick={() => setRail("templates")}
+          ariaLabel="Open templates"
+        >
+          <LayoutTemplate size={12} /> <span className="hidden md:inline">Templates</span>
+        </Btn>
+        <Btn
+          size="xs"
+          variant="outline"
           title="Show / hide the preview pane"
           onClick={onTogglePreviewPane}
           className="xl:hidden"
@@ -150,7 +201,7 @@ export function Toolbar({
             flushAutosave();
             downloadText(
               `${slugify(name) || "readme-buddy"}.json`,
-              serializeDocument(name, blocks),
+              serializeDocument(name, blocks, kind),
               "application/json",
             );
           }}

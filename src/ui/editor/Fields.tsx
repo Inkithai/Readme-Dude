@@ -190,8 +190,14 @@ export function Segmented<T extends string | number>({
   const id = useId();
   return (
     <div>
+      {/* The `aria-labelledby` below points at this span, so the span has to
+          carry the id. Without it every `Segmented` group was an unnamed
+          radiogroup — invisible to a screen reader's "next radio group". */}
       {label ? (
-        <span className="mb-1 block text-[10px] font-semibold tracking-[0.09em] text-zinc-500 uppercase">
+        <span
+          id={`${id}-label`}
+          className="mb-1 block text-[10px] font-semibold tracking-[0.09em] text-zinc-500 uppercase"
+        >
           {label}
         </span>
       ) : null}
