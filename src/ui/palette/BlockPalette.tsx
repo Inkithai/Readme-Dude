@@ -77,10 +77,7 @@ export function BlockPalette() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-r border-zinc-800/80 bg-zinc-900/20">
-      <header className="shrink-0 border-b border-zinc-800/80 px-3 py-2">
-        <h2 className="text-[11px] font-semibold tracking-[0.09em] text-zinc-400 uppercase">Blocks</h2>
-      </header>
+    <div className="flex h-full min-h-0 flex-col">
       <nav aria-label="Block palette" className="rs-scroll min-h-0 flex-1 space-y-3 overflow-y-auto p-2.5">
         {CATEGORIES.map((category) => {
           const types = BLOCK_ORDER.filter((type) => BLOCKS[type].category === category);

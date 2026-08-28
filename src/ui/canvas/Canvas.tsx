@@ -25,6 +25,7 @@ export function Canvas({ overId }: { overId: string | null }) {
   const blocks = useBlocks();
   const addBlock = useDocument((s) => s.addBlock);
   const expand = useDocument((s) => s.expand);
+  const setRail = useDocument((s) => s.setRail);
 
   const visible = blocks.filter((block) => !block.hidden).length;
   const hidden = blocks.length - visible;
@@ -57,10 +58,17 @@ export function Canvas({ overId }: { overId: string | null }) {
           <div className="mx-auto mt-8 max-w-md rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 p-6 text-center">
             <MousePointerClick size={20} className="mx-auto mb-2 text-zinc-600" />
             <p className="text-[13px] font-medium text-zinc-300">Your README is empty</p>
-            <p className="mt-1 mb-4 text-[12px] leading-relaxed text-zinc-500">
+            <p className="mt-1 mb-3 text-[12px] leading-relaxed text-zinc-500">
               Click a block on the left to append it, or drag it onto the canvas to place it exactly. A hero
               and a features section cover most of what readers scan.
             </p>
+            <button
+              type="button"
+              onClick={() => setRail("templates")}
+              className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-indigo-500/50 bg-indigo-500/10 px-3 py-1.5 text-[11.5px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20"
+            >
+              <LayoutTemplate size={12} /> Or start from a preset
+            </button>
             <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label="Quick start">
               {QUICK_START.map((type) => (
                 <button

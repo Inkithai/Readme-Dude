@@ -317,10 +317,34 @@ export type BlockType = Block["type"];
 export type BlockOf<T extends BlockType> = Extract<Block, { type: T }>;
 export type PropsOf<T extends BlockType> = BlockOf<T>["props"];
 
+/**
+ * What kind of GitHub README this document is.
+ *
+ * Phase 3's one structural bet: the *kind* of document is carried in the
+ * envelope, but the block vocabulary is shared. A profile README is not a new
+ * document type — it is the same blocks with different content (an avatar
+ * instead of a logo, socials instead of install steps, third-party stat cards
+ * instead of a roadmap). That is what makes the four profile presets a data
+ * change instead of a schema migration, and it is why `version` stays at 1:
+ * `kind` has a default, so every document written before Phase 3 is already a
+ * valid project document.
+ */
+export const DOCUMENT_KINDS = ["project", "profile"] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+export const isDocumentKind = (value: unknown): value is DocumentKind =>
+  typeof value === "string" && (DOCUMENT_KINDS as readonly string[]).includes(value);
+
+export const KIND_LABEL: Record<DocumentKind, string> = {
+  project: "Project README",
+  profile: "Profile README",
+};
+
 /** The document envelope — versioned so localStorage/format never traps us. */
 export const DocumentSchema = z.object({
   version: z.literal(1),
   name: z.string().default("untitled"),
+  kind: z.enum(DOCUMENT_KINDS).default("project"),
   blocks: z.array(BlockSchema),
 });
 export type ReadmeDocument = z.infer<typeof DocumentSchema>;

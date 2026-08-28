@@ -8,8 +8,9 @@ A visual GitHub README builder: compose blocks, choose how each section is
 presented, preview it like github.com, export Markdown. Frontend-only — no backend,
 no account, your document stays in your browser.
 
-> **Status: Phases 1–2 are implemented** — the core builder and the GitHub Markdown
-> engine. The rest of this document is the product roadmap they were built against.
+> **Status: Phases 1–3 are implemented** — the core builder, the GitHub Markdown engine,
+> and twelve templates that are block compositions rather than Markdown files. The rest of
+> this document is the product roadmap they were built against.
 > Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
 >
 > Renamed from *ReadMe Studio*; `localStorage` keys migrate on first load, so a
@@ -20,7 +21,7 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 196 tests (engine totality, golden fixture, store, fidelity, shell)
+npm test           # 258 tests (engine totality, presets, golden fixtures, store, fidelity, shell)
 # GitHub's own renderer as an oracle (opt-in, needs network):
 #   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
@@ -31,6 +32,13 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 - **15 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
   Tech stack, Installation, Usage, License, Collapsible (`<details>`), Checklist
   (task lists), Links (buttons/pills/list) — each with its own property panel.
+- **Twelve templates** — 8 project (Minimal, Professional, Open Source, SaaS, CLI, Library,
+  HTTP API, AI/ML) + 4 profile (Developer, Full, Minimal, Portfolio). A template is *not* a
+  Markdown file: it is a `Block[]` produced by `src/engine/templates/*.ts`, so it goes through
+  the same zod parse, escaping, URL sanitizer and validator as anything you build by hand — and
+  every preset compiles to **zero** validation issues, which is an assertion, not a hope.
+  One-click from the `Templates` rail tab, replace or append, undoable, with the generated
+  Markdown previewable before you commit to it.
 - **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
   delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
 - **Layout choices, not just content**: hero alignment, five feature layouts
@@ -63,6 +71,38 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
 Block (zod schema)  →  compile.ts (pure functions)  →  GitHub Flavored Markdown
                     ↘  react-markdown + github-markdown-css  →  preview
 ```
+
+## Templates
+
+A template is a `Block[]`, not a text file — `Template → Block configuration → Builder`,
+which is what makes an applied preset editable, undoable and safe in exactly the way a
+hand-composed document is.
+
+```text
+src/engine/templates/
+  types.ts      Template = { id, label, kind, blurb, docName, notes, blocks(): Block[] }
+  build.ts      tpl() · badge() · socialBadge() · cardRow() · brand() · brandGroup() · STATS_URLS
+  project.ts    minimal · professional · open-source · saas-product · cli · library · http-api · ai-ml
+  profile.ts    minimal · developer · full · portfolio
+  index.ts      TEMPLATES · getTemplate · templatesForKind · blocksFromTemplate · previewTemplate
+```
+
+- **`blocks()` is a function**, so every apply mints fresh ids and no two documents share a
+  mutable default: a preset is a factory, not a constant.
+- **It imports no React and no DOM**, like the rest of `src/engine/`, so the gallery and the
+  roadmap's prerendered marketing site read the same twelve presets. `engine/__tests__/boundary.test.ts`
+  enforces that with a specifier whitelist — prose rules rot, tests don't.
+- **Every preset is compiled and validated in the test suite** and must come back with zero
+  issues, which also makes the twelve presets the visual test matrix for all 15 block types
+  (this project has no Storybook by design).
+- **Placeholders are honest.** Projects are `your-org/your-repo` on `*.acme.dev`; profiles are
+  `your-username`. A preset that showed somebody else's real star count would read as yours.
+- `DocumentSchema` grew **`kind: "project" | "profile"`** — version stays 1, a file without the
+  key is a project. Profiles are a different *document*, and the kind is what stops the checker
+  from nagging a profile README about its missing License section.
+- **They ship as a lazy chunk.** Twelve presets plus the brand table are 22.4 kB gzip of
+  content, so `engine/index.ts` deliberately does not re-export them; opening the `Templates`
+  tab is the only time you pay. Numbers in [`docs/TECH-STACK.md`](docs/TECH-STACK.md) §6.
 
 ## Brand
 
@@ -531,6 +571,8 @@ Block configuration
    ↓
 Builder
 ```
+
+Implemented as `src/engine/templates/*.ts` — see [Templates](#templates) above.
 
 ---
 

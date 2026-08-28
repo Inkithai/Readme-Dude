@@ -18,12 +18,12 @@ import { BLOCKS, type BlockType, compileDocument } from "@/engine";
 import { downloadText, readmeFilename } from "@/lib/export";
 import { flushAutosave, history, useDocument } from "@/store/document";
 import { Canvas } from "@/ui/canvas/Canvas";
-import { BlockPalette } from "@/ui/palette/BlockPalette";
+import { PaletteRail } from "@/ui/palette/PaletteRail";
 import { PreviewPane } from "@/ui/preview/PreviewPane";
 import { Toolbar } from "@/ui/shell/Toolbar";
 
 /* ------------------------------------------------------------------ *
- * App.tsx — Phase 1 application shell.
+ * App.tsx — the application shell (Phase 1 core, Phase 3 template rail).
  *
  *   palette → canvas (dnd-kit) → engine.compileDocument → preview / export
  *
@@ -195,7 +195,7 @@ export default function App() {
             aria-hidden={!buildVisible}
           >
             <div className="w-[9.5rem] shrink-0 lg:w-[13.5rem]">
-              <BlockPalette />
+              <PaletteRail />
             </div>
             <div className="min-w-0 flex-1">
               <Canvas overId={overId} />

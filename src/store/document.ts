@@ -9,10 +9,14 @@ import {
   cloneBlock,
   compileDocument,
   createBlock,
+  type DocumentKind,
   parseDocument,
   parseDocumentJson,
+  reidentify,
   serializeDocument,
 } from "@/engine";
+// The type only — the store must never import the preset list itself.
+import type { Template } from "@/engine/templates";
 import { storage } from "@/lib/storage";
 
 /* ------------------------------------------------------------------ *
@@ -32,6 +36,8 @@ export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "unavailable";
 
 interface DocumentState {
   name: string;
+  /** Phase 3 seam: which preset family and which nudges this document gets. */
+  kind: DocumentKind;
   blocks: Block[];
   selectedId: string | null;
   expandedId: string | null;
@@ -39,10 +45,14 @@ interface DocumentState {
   savedAt: number | null;
   /** Blocks present in autosave data that failed validation on load. */
   droppedOnLoad: number;
+  /** Which half of the left rail is showing. UI-ephemeral, never in history. */
+  rail: "blocks" | "templates";
 }
 
 interface DocumentActions {
   setName: (name: string) => void;
+  setKind: (kind: DocumentKind) => void;
+  setRail: (rail: "blocks" | "templates") => void;
   select: (id: string | null) => void;
   toggleExpand: (id: string) => void;
   expand: (id: string | null) => void;
@@ -58,7 +68,13 @@ interface DocumentActions {
   /** Drop target from the palette: `gap:<index>`; sortable item: the block id. */
   handleDrop: (activeBlock: { type: BlockType } | Block, overId: string | null | undefined) => void;
   clearAll: () => void;
-  replaceBlocks: (blocks: Block[], name?: string) => void;
+  replaceBlocks: (blocks: Block[], name?: string, kind?: DocumentKind) => void;
+  /**
+   * Put a preset on the canvas. `replace` is the product's main path ("start
+   * from this template"); `append` drops the same sections after the current
+   * ones, which is how a preset stays useful after the document exists.
+   */
+  applyTemplate: (template: Template, mode?: "replace" | "append") => void;
   importJson: (text: string) => { ok: boolean; dropped: number; message?: string };
 }
 
@@ -66,12 +82,14 @@ export type DocumentStore = DocumentState & DocumentActions;
 
 const EMPTY: DocumentState = {
   name: "untitled",
+  kind: "project",
   blocks: [],
   selectedId: null,
   expandedId: null,
   saveStatus: "idle",
   savedAt: null,
   droppedOnLoad: 0,
+  rail: "blocks",
 };
 
 /**
@@ -86,14 +104,27 @@ export function readAutosavePayload(): string | null {
   return raw;
 }
 
-function hydrate(): Pick<DocumentState, "blocks" | "name" | "droppedOnLoad" | "saveStatus"> {
+function hydrate(): Pick<DocumentState, "blocks" | "name" | "kind" | "droppedOnLoad" | "saveStatus"> {
   const raw = readAutosavePayload();
-  if (!raw) return { blocks: [], name: "untitled", droppedOnLoad: 0, saveStatus: "idle" };
+  const blank = {
+    blocks: [] as Block[],
+    name: "untitled",
+    kind: "project" as DocumentKind,
+    droppedOnLoad: 0,
+    saveStatus: "idle" as SaveStatus,
+  };
+  if (!raw) return blank;
   try {
     const { document, dropped } = parseDocument(JSON.parse(raw));
-    return { blocks: document.blocks, name: document.name, droppedOnLoad: dropped, saveStatus: "saved" };
+    return {
+      blocks: document.blocks,
+      name: document.name,
+      kind: document.kind,
+      droppedOnLoad: dropped,
+      saveStatus: "saved",
+    };
   } catch {
-    return { blocks: [], name: "untitled", droppedOnLoad: 0, saveStatus: "idle" };
+    return blank;
   }
 }
 
@@ -108,12 +139,21 @@ export const useDocument = create<DocumentStore>()(
       ...EMPTY,
       blocks: initial.blocks,
       name: initial.name,
+      kind: initial.kind,
       droppedOnLoad: initial.droppedOnLoad,
       saveStatus: initial.saveStatus,
 
       setName: (name) =>
         set((s: DocumentStore) => {
           s.name = name || "untitled";
+        }),
+      setKind: (kind) =>
+        set((s: DocumentStore) => {
+          s.kind = kind;
+        }),
+      setRail: (rail) =>
+        set((s: DocumentStore) => {
+          s.rail = rail;
         }),
       select: (id) =>
         set((s: DocumentStore) => {
@@ -245,13 +285,35 @@ export const useDocument = create<DocumentStore>()(
           s.expandedId = null;
         }),
 
-      replaceBlocks: (blocks, name) =>
+      replaceBlocks: (blocks, name, kind) =>
         set((s: DocumentStore) => {
           s.blocks = blocks;
           if (name !== undefined) s.name = name;
+          if (kind !== undefined) s.kind = kind;
           s.selectedId = null;
           s.expandedId = blocks[0]?.id ?? null;
         }),
+
+      applyTemplate: (template, mode = "replace") => {
+        // `reidentify` rather than the registry's `blocksFromTemplate`: the
+        // store must not import the preset list, or all twelve presets and
+        // their brand data land in the boot chunk beside the editor.
+        const blocks = reidentify(template.blocks());
+        set((s: DocumentStore) => {
+          if (mode === "append") s.blocks = [...s.blocks, ...blocks];
+          else s.blocks = blocks;
+          // A preset carries its own document name and kind, because that is
+          // what makes "start from template" one gesture instead of four.
+          // Append mode leaves both alone: you are adding sections, not
+          // starting a different document.
+          if (mode === "replace") {
+            s.name = template.docName;
+            s.kind = template.kind;
+          }
+          s.selectedId = null;
+          s.expandedId = s.blocks[0]?.id ?? null;
+        });
+      },
 
       importJson: (text) => {
         const { document, dropped, errors } = parseDocumentJson(text);
@@ -261,19 +323,22 @@ export const useDocument = create<DocumentStore>()(
           // replaceBlocks() runs: "imported" would otherwise mean "erased".
           return { ok: false, dropped, message: errors[0] ?? "no readable blocks in that file" };
         }
-        get().replaceBlocks(document.blocks, document.name);
+        get().replaceBlocks(document.blocks, document.name, document.kind);
         return { ok: true, dropped };
       },
     })),
     {
-      // Undo/redo covers the document only — never selection or save status.
-      partialize: (state) => ({ blocks: state.blocks, name: state.name }),
+      // Undo/redo covers the document only — never selection, rail tab or
+      // save status. `kind` is document data (it is serialized into the file),
+      // so undoing "apply profile preset" has to take the kind back with it.
+      partialize: (state) => ({ blocks: state.blocks, name: state.name, kind: state.kind }),
       // zundo pushes an entry on *every* setState unless told otherwise, so a
       // plain click on a block would create an empty undo step and make ⌘Z look
       // broken. Reference equality is enough here: immer hands back the same
       // `blocks` array whenever a mutation did not touch it, so this is O(1)
       // and exact — no deep compare, no stringify on every keystroke.
-      equality: (past, current) => past.blocks === current.blocks && past.name === current.name,
+      equality: (past, current) =>
+        past.blocks === current.blocks && past.name === current.name && past.kind === current.kind,
       limit: 120,
     },
   ),
@@ -304,7 +369,7 @@ export const useMarkdown = (): string => {
 
 /* ------------------------------ history api ------------------------------ */
 
-type HistoryState = TemporalState<Pick<DocumentState, "blocks" | "name">>;
+type HistoryState = TemporalState<Pick<DocumentState, "blocks" | "name" | "kind">>;
 
 export const history = {
   undo: (): void => useDocument.temporal.getState().undo(),
@@ -338,8 +403,8 @@ export function flushAutosave(): void {
     clearTimeout(pending);
     pending = null;
   }
-  const { name, blocks } = useDocument.getState();
-  const payload = serializeDocument(name, blocks);
+  const { name, blocks, kind } = useDocument.getState();
+  const payload = serializeDocument(name, blocks, kind);
   if (payload === lastWritten) return;
   useDocument.setState({ saveStatus: "saving" });
   if (!storage.set(AUTOSAVE_KEY, payload)) {
@@ -353,7 +418,8 @@ export function flushAutosave(): void {
 }
 
 useDocument.subscribe((state, previous) => {
-  if (state.blocks === previous.blocks && state.name === previous.name) return;
+  if (state.blocks === previous.blocks && state.name === previous.name && state.kind === previous.kind)
+    return;
   useDocument.setState({ saveStatus: "dirty" });
   if (pending) clearTimeout(pending);
   pending = setTimeout(flushAutosave, 500);
