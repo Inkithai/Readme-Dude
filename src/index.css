@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ *
+ * App chrome (ReadMe Buddy). Utilities do the layout work; this file only holds what
+ * Tailwind can't express: scrollbars, drag affordances, and the scoping
+ * rules that keep github-markdown-css from leaking into the tool UI
+ * (docs/TECH-STACK.md §4 — "Tailwind + github-markdown-css collision").
+ * ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: dark;
+  --app-bg: #09090b;
+  --app-accent: #818cf8;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: #d4d4d8;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(99 102 241 / 0.35);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* Scrollbars: thin, unobtrusive, still visible on light preview panels. */
+.rs-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+.rs-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.rs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rs-scroll::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+.rs-scroll::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+  background-clip: content-box;
+}
+
+/* Drag & drop affordances (dnd-kit sets these attributes on the nodes). */
+[data-rs-dragging="true"] {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.rs-gap {
+  position: relative;
+  height: 0.625rem;
+  margin: -0.25rem 0;
+}
+.rs-gap[data-over="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto 0;
+  height: 0.25rem;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--app-accent);
+  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.18);
+}
+.rs-gap[data-over="true"]::after {
+  content: "drop here";
+  position: absolute;
+  top: calc(50% + 0.4rem);
+  left: 0;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-accent);
+}
+
+textarea,
+input,
+select,
+button {
+  font: inherit;
+}
+
+/* The GitHub preview must look like github.com, not like Tailwind's reset. */
+.rs-preview-frame {
+  background: #ffffff;
+  border-radius: 10px;
+  contain: paint;
+}
+.rs-preview-frame .markdown-body {
+  box-sizing: border-box;
+  padding: 2rem 2.5rem;
+  max-width: 1012px;
+  margin-inline: auto;
+  font-size: 16px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+.rs-preview-frame[data-color-mode="dark"] {
+  background: #0d1117;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

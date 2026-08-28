@@ -1,0 +1,14 @@
+{
+  "name": "ReadMe Buddy — visual README builder",
+  "short_name": "ReadMe Buddy",
+  "description": "Compose blocks, preview like github.com, export Markdown. No backend, no account.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#6d70f5",
+  "icons": [
+    { "src": "mark-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "mark-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

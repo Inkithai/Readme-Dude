@@ -1,5 +1,87 @@
-# ReadMe-Generator
-leisure time project
+# ReadMe Buddy
+
+<p align="center">
+  <img src="public/og-image.png" alt="ReadMe Buddy — build READMEs worth reading, in blocks, not by hand" width="100%" />
+</p>
+
+A visual GitHub README builder: compose blocks, choose how each section is
+presented, preview it like github.com, export Markdown. Frontend-only — no backend,
+no account, your document stays in your browser.
+
+> **Status: Phases 1–2 are implemented** — the core builder and the GitHub Markdown
+> engine. The rest of this document is the product roadmap they were built against.
+> Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
+>
+> Renamed from *ReadMe Studio*; `localStorage` keys migrate on first load, so a
+> document autosaved by the earlier build is picked up under the new namespace.
+
+## Run it
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm test           # 196 tests (engine totality, golden fixture, store, fidelity, shell)
+# GitHub's own renderer as an oracle (opt-in, needs network):
+#   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
+npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
+```
+
+## What works today
+
+- **15 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
+  Tech stack, Installation, Usage, License, Collapsible (`<details>`), Checklist
+  (task lists), Links (buttons/pills/list) — each with its own property panel.
+- **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
+  delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
+- **Layout choices, not just content**: hero alignment, five feature layouts
+  (bullets / numbered / icon+text / 2-col cards / 3-col cards), four tech-stack layouts,
+  per-column table alignment, GitHub alerts.
+- **Live GitHub preview** (`github-markdown-css` + GFM + alerts + sanitized HTML),
+  a **raw Markdown** view, and a **per-block Markdown peek** so you can see what each
+  block contributes to the export.
+- **Checks** tab: unbalanced fences, stray `</details>`, unescaped table pipes,
+  unresolvable image paths, unknown alert types, duplicate section anchors, dropped
+  URLs and Markdown pasted straight after `</summary>` are reported before you paste
+  the result into a repo.
+- **Escaping contract**: single-line label fields (headings, titles) are plain text
+  and get Markdown-neutralised; multi-line bodies are Markdown and are never touched.
+  `javascript:`/`data:`/control-character URLs are dropped, not escaped, and reported.
+- **The compiler degrades, it never throws**: every block type compiles with missing,
+  empty or junk-shaped fields (hand-edited JSON, a half-written import, a template that
+  forgot a key) — the guard suite is `src/engine/__tests__/robustness.test.ts`.
+- **Honest status**: a blocked clipboard and a failed `localStorage` write both say so
+  instead of showing green.
+- **Fidelity, tested twice**: one rule file (`src/engine/__tests__/fidelity-rules.ts`)
+  is asserted against our own preview *and* against `POST /api.github.com/markdown` —
+  GitHub's renderer. 14 rules, both suites green.
+- **Output**: Copy Markdown, Download `README.md` (`⌘S`), plus `.json` export/import.
+  Autosave to `localStorage` so a refresh never loses work.
+
+## Architecture in one line
+
+```
+Block (zod schema)  →  compile.ts (pure functions)  →  GitHub Flavored Markdown
+                    ↘  react-markdown + github-markdown-css  →  preview
+```
+
+## Brand
+
+`public/mark.svg` is the mark — a folded-corner page that smiles, i.e. a README that is
+glad to see you. `logo.svg` / `logo-inverse.svg` are the lockups for light and dark
+backgrounds, `og.svg` the social card. The PNGs are committed, so a build never needs a
+rasteriser; after editing an SVG run `npm run brand:assets` (requires `sharp` — see the
+header of `scripts/gen-brand-assets.mjs`).
+
+`src/engine/**` never imports React. That single rule is what keeps the compiler
+testable, keeps the Markdown correct, and keeps the door open on the roadmap's later
+goal — the same engine driving CHANGELOG/CONTRIBUTING/API docs, or a CLI, or a
+VS Code extension.
+
+---
+
+# Roadmap
+
+Yes. I would structure this as a **product roadmap**, not just a coding roadmap, because the first job is to make sure we are not rebuilding readme.so.
 
 
 Yes. I would structure this as a **product roadmap**, not just a coding roadmap, because the first job is to make sure we are not rebuilding readme.so.
@@ -725,7 +807,7 @@ Because the core is client-side, this can remain extremely cheap to host.
 I'd aim for this:
 
 ```text
-                     README STUDIO
+                      README BUDDY
                           │
              ┌────────────┴────────────┐
              │                         │
@@ -754,7 +836,7 @@ Later:
                       │
                GitHub Integration
                       │
-README Studio ────────┤
+README Buddy ─────────┤
                       │
                  Repository
                   Analysis
