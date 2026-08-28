@@ -113,6 +113,30 @@ export function validateDocument(blocks: Block[], markdown: string, options: Val
     }
   }
 
+  // 3b. A Screenshot block can be schema-valid and still draw nothing: every
+  // URL empty, or all of them refused by the sanitizer. Since the block then
+  // vanishes from the export without an error, say so here. `split` is exempt
+  // when it carries prose — that half renders on its own.
+  for (const block of blocks) {
+    if (block.type !== "image") continue;
+    const props = block.props as unknown as Record<string, unknown>;
+    // Same precedence as the compiler: a row you have started is
+    // authoritative, so the block-level URL hiding under it is not a source.
+    const items = Array.isArray(props.items) ? (props.items as { url?: unknown }[]) : [];
+    const sources = items.length > 0 ? items.map((item) => item?.url) : [props.url];
+    const usable = sources.some((value) => typeof value === "string" && value.trim() && !isUnsafeUrl(value));
+    if (usable) continue;
+    const prose = typeof props.text === "string" ? props.text.trim() : "";
+    if (props.layout === "split" && prose) continue;
+    push({
+      level: "warning",
+      rule: "image-no-source",
+      message: "This Screenshot block has no usable image URL, so it renders nothing.",
+      blockId: block.id,
+      fix: "Add an https:// image URL, or remove the block.",
+    });
+  }
+
   // 4. Raw HTML tags users paste must balance.
   const prose = proseLines(markdown).join("\n");
   for (const tag of ["details", "summary", "table", "p", "div", "a", "img"]) {

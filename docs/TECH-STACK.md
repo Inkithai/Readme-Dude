@@ -1,6 +1,6 @@
 # Tech Stack Decision Record
 
-Status: **adopted — Phases 1–3 built** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
+Status: **adopted — Phases 1–3 built, Phase 4 in progress** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
 
 This document picks the stack for ReadMe Buddy (filed under its earlier name, *ReadMe Studio*) and, more importantly, records *why* — so a
 future-you doesn't re-litigate it or silently drift into a worse choice.
@@ -18,7 +18,8 @@ Phase 1 (the roadmap's “Core README builder”) and Phase 2 (the “GitHub Mar
 engine”) are implemented, and Phase 3 (templates) is implemented as block compositions
 rather than Markdown files. 258 tests cover the engine, the presets, the golden
 fixtures, the store, preview fidelity and the mounted shell — plus 14 more that run
-against GitHub's own renderer when `GFM_FIDELITY=1` is set. Phase 3 added 62 of them.
+against GitHub's own renderer when `GFM_FIDELITY=1` is set. Phase 3 added 62 of them,
+and Phase 4's first two designers 29 more (287 in total).
 
 | Roadmap Phase 1 item | Where it lives |
 | --- | --- |
@@ -56,10 +57,12 @@ Deliberate deviations from §2, all of them "later, not never":
 | CSS grid instead of `react-resizable-panels` | Drag-resizable panes are polish, not capability. |
 | `localStorage` autosave, not Dexie | One debounced write-behind key is enough until Phase 6 introduces *projects*; `storage.ts` keeps the swap to IndexedDB to one file. |
 
-Measured result: boot chunk **133.4 kB gzip** (127.7 after Phase 1, 131.8 after
-Phase 2), lazy preview engine **180.5 kB gzip**, lazy template gallery **22.4 kB
-gzip** — the §6 budget (≤ 200 kB on boot) still held after Phase 3, because twelve
-presets were deliberately pushed out of the boot chunk (finding 2 under Phase 3).
+Measured result: boot chunk **135.6 kB gzip** (127.7 after Phase 1, 131.8 after
+Phase 2, 133.4 after Phase 3, +2.2 for the Phase 4 designers — they live in the
+property panel, which is first-paint), lazy preview engine **180.5 kB gzip**, lazy
+template gallery **22.4 kB gzip** — the §6 budget (≤ 200 kB on boot) still held,
+because twelve presets were deliberately pushed out of the boot chunk (finding 2
+under Phase 3).
 
 ### Phase 2 — the GitHub Markdown engine
 
@@ -98,6 +101,7 @@ unauthenticated limit is per IP, and behind a TLS-terminating proxy Node needs
 because a red network test in a locked-down sandbox trains everyone to ignore the suite.
 
 ### Audit — what a bug hunt found after Phase 2
+
 
 Nine real bugs, each with a test that used to pass. Ordered by how badly they failed:
 
@@ -164,6 +168,27 @@ Four findings worth keeping:
    shipped as unexplained ugliness. `templates.test.ts` now asserts every tech-stack and
    logo name resolves, which turns “check 151 names by eye” into a one-line expectation.
 
+### Phase 4 (started) — the designers, beginning with layout
+
+Two of the five designers, chosen because they are where `src/engine/` had to change
+rather than only the panel JSX. The point of the phase is the promise in §2: a block
+carries its *presentation* in its props, so a designer is a control surface, not a
+second rendering path.
+
+| Item | What landed |
+| --- | --- |
+| `image` block | Now a layout block: `layout: single \| columns \| gallery \| split` × `columns: 2 \| 3`, `items: { url, alt, caption, link }[]`, and `text` for the side-by-side form. Rows emit `<table>` cells at your pixel width, galleries at `width="100%"`, `split` a 55/45 table with `valign="top"`. Reuses the exact HTML pattern `features` cards already established, so the sanitizer allow-list and the fidelity rules did not have to grow. |
+| `hero` block | `imageUrl` / `imageWidth` / `imageAlt` — a banner between tagline and buttons, inside the `<div align>` wrapper so it centres itself. |
+| Layout pickers | `src/ui/designer/kit.tsx`. Thumbnails drawn with divs, not images or icon fonts: a picture of a layout goes stale the moment the compiler changes, and the div version renders offline, in jsdom and in a prerendered marketing page. `ImageThumb` moved here from `blockEditors` and is now shared by hero, screenshot and links. |
+| Degrade rules | A half-filled block never loses the half that is filled: `split` with no image renders the prose, `split` with no prose renders the image, `single` with an empty `url` falls back to the first item. Once `items` exists it is *authoritative* — a row may not show an image the panel does not list. |
+| Checks | New `image-no-source` warning for a Screenshot block that compiles to nothing, using the same precedence as the compiler, so the two can never disagree about whether anything was drawn. |
+| Legacy data | No migration: `layout`/`columns`/`items` all default, so a Phase 1–2 `.json` still opens as a centred single image. `url` stopped being `.min(1)` (also for item URLs) — an in-progress image must not invalidate the block, or the document refuses to reload with one empty slot in it. |
+| a11y | `Segmented`'s `aria-labelledby` pointed at an id that was never rendered on the label `<span>`: every segmented group in the app was an *unnamed* radiogroup. Fixed in `Fields.tsx`; `LayoutPicker` got the same association from the start. |
+
+Test note worth repeating: `validateDocument` short-circuits with `empty-document` when
+the Markdown is empty, so a test for "this block renders nothing" must put the block
+beside another one — otherwise it asserts the document-level error and learns nothing.
+
 ---
 
 ## 1. The requirements that actually decide this
@@ -177,7 +202,7 @@ Reading the roadmap, six constraints do all the work. Everything else is taste.
 | C3 | "The generated Markdown must remain **valid**" for GFM (Pillar 3) | The compiler must be **string-building you own** (not a generic AST stringifier), and it needs golden-file tests against real GitHub rendering. |
 | C4 | "Live **GitHub-style** preview" + "Raw Markdown view" (both 🔴 MVP) | You need a Markdown→DOM renderer with **GitHub's own stylesheet** and GFM/alerts/HTML extensions. Rendering ≠ generating; keep them separate. |
 | C5 | Drag & drop, duplicate, hide/show, **undo/redo** (all 🔴 MVP) | Undo/redo is a state-management problem, not a UI problem. Pick state tech that has it *built in*. |
-| C6 | Design control: hero variants, feature-card layouts, badge designer, image layouts (Phase 4) | Layout variants are **props on blocks**, so the block props need a *variant* dimension from day one — this is a data-modeling decision, not a library one. |
+| C6 | Design control: hero variants, feature-card layouts, badge designer, image layouts (Phase 4) | Layout variants are **props on blocks**, so the block props need a *variant* dimension from day one — this is a data-modeling decision, not a library one. Held up in Phase 4: adding four screenshot arrangements and a hero banner was `schema` + `compile` + a panel, and the compiler's per-block `try/catch` contract meant nothing else had to know. |
 | C7 | IndexedDB for larger projects, autosave, version history (Phase 6) | A promise-based IndexedDB wrapper, not `localStorage` strings. |
 
 The single most consequential inference from C2: **this is a property-panel application, not a
@@ -240,6 +265,8 @@ src/
   ui/
     editor/                property panels (forms), one per block type
     canvas/                sortable block list, hide/dup/delete controls
+    designer/              Phase 4: the layout pickers and live thumbs shared by every
+                           property panel (CSS-drawn thumbnails, no image requests)
     preview/               the react-markdown pipeline, lazy-loaded
     shell/                 three-pane layout, toolbar, command palette (Phase 10)
   store/

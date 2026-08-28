@@ -124,6 +124,13 @@ function compileHero(block: Block): string {
   lines.push(`  <h1>${escapeHtml(nl(p.title as string))}</h1>`, "");
   const subtitle = nl(p.subtitle as string);
   if (subtitle) lines.push(`  <p>${inlineMarkdownToHtml(subtitle).replace(/\n/g, "<br />")}</p>`, "");
+  // The hero's own screenshot: what the thing looks like, between the promise
+  // and the buttons. Inside the <div align> wrapper, so it centres itself.
+  const banner = safeUrl(p.imageUrl as string);
+  if (banner) {
+    const alt = escapeHtml(nl(p.imageAlt as string) || "Screenshot");
+    lines.push(`  <img src="${banner}" alt="${alt}" width="${clampedWidth(p.imageWidth, 720)}" />`, "");
+  }
   const buttons = list<{ label?: string; url?: string }>(p.buttons);
   const rendered = [];
   for (const b of buttons) {
@@ -223,21 +230,152 @@ function compileFeatures(block: Block): string {
   return out.join("\n");
 }
 
+/* ---------------------------- screenshots ---------------------------- */
+
+/** One normalised image out of a Screenshot block. */
+interface Shot {
+  src: string;
+  alt: string;
+  caption: string;
+  link: string;
+}
+
+/**
+ * `items` is what rows and galleries walk; the block-level `url` is the
+ * single-image form, and also what a row shows before you have added anything
+ * to it — which is the state you land in when you switch layout mid-edit.
+ */
+function toShot(raw: { url?: unknown; alt?: unknown; caption?: unknown; link?: unknown }): Shot | null {
+  const src = safeUrl(str(raw.url));
+  if (!src) return null;
+  return {
+    src,
+    alt: escapeHtml(nl(str(raw.alt)) || "Screenshot"),
+    caption: nl(str(raw.caption)),
+    link: safeUrl(str(raw.link)),
+  };
+}
+
+function collectShots(p: AnyProps): Shot[] {
+  const rawItems = list<Record<string, unknown>>(p.items);
+  // A row you have *started* is a row you own: once the list exists, a blank
+  // slot means "no image here", and quietly borrowing the block-level `url`
+  // instead would put an image on the page that the panel does not show.
+  if (rawItems.length > 0) {
+    return rawItems.map((item) => toShot(item ?? {})).filter((value): value is Shot => value !== null);
+  }
+  const only = toShot({ url: p.url, alt: p.alt, caption: p.caption, link: p.linkUrl });
+  return only ? [only] : [];
+}
+
+/** The block-level image, which is also what `single` shows first. */
+function leadShot(p: AnyProps): Shot | undefined {
+  return toShot({ url: p.url, alt: p.alt, caption: p.caption, link: p.linkUrl }) ?? collectShots(p)[0];
+}
+
+/** `width="…"` for an `<img>`; a missing or junk number renders no attribute. */
+function pxWidth(value: unknown, fallback = 0): string {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return ` width="${Math.min(2400, n || fallback)}"`;
+}
+const clampedWidth = (value: unknown, fallback: number): number => {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n > 0 ? Math.min(2400, n) : fallback;
+};
+
+const shotImg = (shot: Shot, width: string): string => {
+  const img = `<img src="${shot.src}" alt="${shot.alt}"${width} />`;
+  return shot.link ? `<a href="${shot.link}">${img}</a>` : img;
+};
+
+/** `single` — a bare `<img>`, or a centred one inside `<p>`, plus an italic caption. */
+function renderShot(shot: Shot, width: string, align: string, caption: string): string {
+  const body = shotImg(shot, width);
+  const lines = align === "left" ? [body] : [`<p align="${align}">`, `  ${body}`, "</p>"];
+  const text = caption || shot.caption;
+  if (text) lines.push("", `*${inlineMarkdownToHtml(text)}*`);
+  return lines.join("\n");
+}
+
 function compileImage(block: Block): string {
   const p = withProps(block, "image");
-  const src = safeUrl(p.url as string);
-  if (!src) return "";
-  const alt = escapeHtml(nl(p.alt as string) || "Image");
-  // Caption is body-Markdown, so it is not label()-escaped — but *emphasis
-  // wrapping* it needs the caption itself to be non-empty (below).
-  const width = Number(p.width) > 0 ? ` width="${Math.min(2400, Number(p.width))}"` : "";
-  const img = `<img src="${src}" alt="${alt}"${width} />`;
-  const link = safeUrl(p.linkUrl as string);
-  const body = link ? `<a href="${link}">${img}</a>` : img;
-  const lines = p.align === "left" ? [body] : [`<p align="${p.align}">`, `  ${body}`, "</p>"];
-  const caption = nl(p.caption as string);
-  if (caption) lines.push("", `*${inlineMarkdownToHtml(caption)}*`);
-  return lines.join("\n");
+  const layout = str(p.layout) || "single";
+
+  if (layout === "single") {
+    // Prefer the block's own image, then the first item: flipping a filled row
+    // back to Single must not blank the canvas.
+    const shot = leadShot(p);
+    if (!shot) return "";
+    // Caption is body-Markdown, so it is not label()-escaped — but *emphasis*
+    // wrapping it needs the caption itself to be non-empty.
+    return renderShot(shot, pxWidth(p.width), str(p.align) || "center", nl(p.caption as string));
+  }
+
+  const shots = collectShots(p);
+  const prose = normalizeLines(str(p.text)).trim();
+  const perRow = Math.trunc(Number(p.columns)) === 3 ? 3 : 2;
+  const cellWidth = `${Math.floor(100 / perRow)}%`;
+
+  if (layout === "split") {
+    const first = shots[0];
+    // Either half can be empty without losing the other one.
+    if (!first) return prose;
+    if (!prose) return renderShot(first, pxWidth(p.width), str(p.align) || "center", "");
+    const image = [`  ${shotImg(first, ' width="100%"')}`];
+    if (first.caption) image.push(`  <p><em>${inlineMarkdownToHtml(first.caption)}</em></p>`);
+    const body = inlineMarkdownToHtml(prose).replace(/\n/g, "<br />");
+    return [
+      "<table>",
+      "<tr>",
+      `<td width="55%">`,
+      ...image,
+      "</td>",
+      `<td width="45%" valign="top">`,
+      `  <p>${body}</p>`,
+      "</td>",
+      "</tr>",
+      "</table>",
+    ].join("\n");
+  }
+
+  if (shots.length === 0) return "";
+
+  // `columns` and `gallery` are the same HTML table with a different sizing
+  // model: rows keep the block's pixel width (side-by-side screenshots that
+  // stay the size you chose), galleries fill the cell (a showcase grid). Both
+  // wrap onto new rows every `columns` images, and pad the trailing row so the
+  // last one cannot stretch to full width — GitHub sizes `<td>` by content.
+  const gallery = layout === "gallery";
+  const cell = (shot: Shot): string => {
+    const img = shotImg(shot, gallery ? ' width="100%"' : pxWidth(p.width));
+    const lines = [`<td width="${cellWidth}" align="center">`];
+    if (gallery) {
+      lines.push("  <p>", `  ${img}`);
+      if (shot.caption) lines.push(`  <em>${inlineMarkdownToHtml(shot.caption)}</em>`);
+      lines.push("  </p>");
+    } else {
+      lines.push(`  ${img}`);
+      if (shot.caption) lines.push(`  <br /><em>${inlineMarkdownToHtml(shot.caption)}</em>`);
+    }
+    lines.push("</td>");
+    return lines.join("\n");
+  };
+
+  // No `<p align>` wrapper here: a table is a block-level element GitHub
+  // left-aligns, and `align` deliberately does nothing for these two layouts
+  // (the editor stops offering it, rather than offering a dead control).
+  const table: string[] = ["<table>"];
+  for (let i = 0; i < shots.length; i += perRow) {
+    const row = shots.slice(i, i + perRow);
+    const cells = Array.from({ length: perRow }, (_, col) => {
+      const shot = row[col];
+      return shot ? cell(shot) : `<td width="${cellWidth}"></td>`;
+    });
+    table.push("<tr>", ...cells, "</tr>");
+  }
+  table.push("</table>");
+  return table.join("\n");
 }
 
 function compileCode(block: Block): string {

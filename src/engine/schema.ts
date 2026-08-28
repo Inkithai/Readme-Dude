@@ -45,6 +45,23 @@ export const BadgeItemSchema = z.object({
 });
 export type BadgeItem = z.infer<typeof BadgeItemSchema>;
 
+/**
+ * One image inside a Screenshot block. `layout` decides how the collection is
+ * arranged; an item carries the content, never the arrangement.
+ */
+export const ShotItemSchema = z.object({
+  // Not `.min(1)`: a row you are still filling in must not invalidate the
+  // block, or the document would refuse to reload with an empty slot in it.
+  // "No usable image" is a compile result and a Check, not a parse error.
+  url: url.default(""),
+  alt: text.default(""),
+  /** Shown under the image (italic). Body-Markdown, like other captions. */
+  caption: text.default(""),
+  /** Optional click-through target for this image only. */
+  link: url.default(""),
+});
+export type ShotItem = z.infer<typeof ShotItemSchema>;
+
 export const TechItemSchema = z.object({
   name: text.min(1, "Name is required"),
   /** simple-icons slug, used for shields.io `logo=` (empty → no logo). */
@@ -90,6 +107,14 @@ export const HeroBlock = z.object({
     logoWidth: z.number().int().positive().max(1000).default(96),
     title: text.min(1, "Hero title is required"),
     subtitle: text.default(""),
+    /**
+     * A screenshot or banner between the tagline and the buttons. Separate
+     * from `logoUrl` because they answer different questions: the logo says
+     * *who*, this says *what it looks like*.
+     */
+    imageUrl: url.default(""),
+    imageWidth: z.number().int().positive().max(2400).default(720),
+    imageAlt: text.default("Screenshot"),
     buttons: z.array(ButtonSchema).default([]),
   }),
 });
@@ -134,12 +159,33 @@ export const ImageBlock = z.object({
   type: z.literal("image"),
   hidden: z.boolean().default(false),
   props: z.object({
-    url: url.min(1, "Image URL is required"),
+    /**
+     * The arrangement. `url`/`caption` are the single-image form; `items` is
+     * what rows and galleries walk. A block can hold both while you are
+     * rearranging it, and the layout picks which one wins.
+     *
+     *   single   one image, your pixel width, optional caption
+     *   columns  a row of `columns` images at your pixel width
+     *   gallery  a grid of `columns` captioned cards that fill their cell
+     *   split    image left, prose right — the "look what it does" block
+     */
+    layout: z.enum(["single", "columns", "gallery", "split"]).default("single"),
+    columns: z.union([z.literal(2), z.literal(3)]).default(2),
+    // `url` is no longer `.min(1)`: rows and galleries legitimately leave it
+    // empty. "Nothing to draw" is not a schema error, it is a compile result —
+    // the block renders empty and the Checks tab says so, instead of the whole
+    // block being dropped on import.
+    url: url.default(""),
     alt: text.default("Screenshot"),
+    /** Pixel width in `single`/`columns`; rows and galleries honour it, the
+     *  cell-filling layouts let the column set the size. */
     width: z.number().int().positive().max(2400).default(800),
     align: z.enum(["left", "center", "right"]).default("center"),
     caption: text.default(""),
     linkUrl: url.default(""),
+    items: z.array(ShotItemSchema).default([]),
+    /** Prose for `split`. Markdown, like every other body field. */
+    text: text.default(""),
   }),
 });
 
@@ -383,6 +429,9 @@ export const BLOCKS: Record<BlockType, BlockDefinition> = {
         logoWidth: 96,
         title: "Project Name",
         subtitle: "One sentence that explains what this project does and why it exists.",
+        imageUrl: "",
+        imageWidth: 720,
+        imageAlt: "Screenshot",
         buttons: [],
       }),
   },
@@ -426,15 +475,19 @@ export const BLOCKS: Record<BlockType, BlockDefinition> = {
     type: "image",
     label: "Screenshot",
     category: "media",
-    hint: "Single image with caption",
+    hint: "Screenshots — single, rows, gallery, or image + text",
     create: () =>
       make("image", {
+        layout: "single",
+        columns: 2,
         url: "https://placehold.co/900x480/png?text=Screenshot",
         alt: "Screenshot",
         width: 900,
         align: "center",
         caption: "",
         linkUrl: "",
+        items: [],
+        text: "",
       }),
   },
   code: {

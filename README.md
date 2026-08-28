@@ -21,7 +21,7 @@ no account, your document stays in your browser.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 258 tests (engine totality, presets, golden fixtures, store, fidelity, shell)
+npm test           # 287 tests (engine totality, presets, golden fixtures, store, fidelity, shell)
 # GitHub's own renderer as an oracle (opt-in, needs network):
 #   GFM_FIDELITY=1 npx vitest run src/engine/__tests__/github-fidelity.test.ts
 npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
@@ -41,9 +41,13 @@ npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Clou
   Markdown previewable before you commit to it.
 - **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
   delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
-- **Layout choices, not just content**: hero alignment, five feature layouts
-  (bullets / numbered / icon+text / 2-col cards / 3-col cards), four tech-stack layouts,
-  per-column table alignment, GitHub alerts.
+- **Layout choices, not just content**: a Screenshot designer with five
+  arrangements (single, 2-column row, 3-column row, captioned gallery, image + text
+  side-by-side), hero alignment, five feature layouts (bullets / numbered / icon+text /
+  2-col cards / 3-col cards), four tech-stack layouts, per-column table alignment,
+  GitHub alerts. The layout pickers draw their thumbnails in CSS, so what you click is
+  the arrangement you get — and it renders offline, in tests, and in a prerendered
+  marketing page alike.
 - **Live GitHub preview** (`github-markdown-css` + GFM + alerts + sanitized HTML),
   a **raw Markdown** view, and a **per-block Markdown peek** so you can see what each
   block contributes to the export.
@@ -635,6 +639,28 @@ Tools
 ```
 
 This turns the product from a **README editor** into a **README designer**.
+
+#### Built — Screenshot and Hero designers
+
+The designer is not a new rendering path; it is a *control surface* over block
+props, so everything still compiles through `compile.ts` and stays editable.
+
+| Designer | Status |
+| --- | --- |
+| Screenshot | ✅ `image` block became a layout block: `layout: single \| columns \| gallery \| split` × `columns: 2 \| 3`, a list of `{ url, alt, caption, link }` shots, per-row captions, click-through links. The five arrangements the roadmap names are five thumbnails, not five dropdown words. |
+| Hero | ✅ gained `imageUrl` / `imageWidth` / `imageAlt`: the logo says *who*, the banner says *what it looks like*, and the order in the output is logo → title → tagline → image → buttons. |
+| Badge | ⏳ the shields.io generator exists (`label`, `message`, colour, style); a per-badge editor that owns `logo`/`link`/`style` is next. |
+| Feature | ⏳ five layouts exist; an icon picker over the brand table is next. |
+| Tech stack | ⏳ grouped layout + brand picker exist; the five named buckets as first-class controls are next. |
+
+Two rules the phase had to settle, both in `engine/__tests__/screenshots.test.ts`:
+
+* **Rows keep your pixel width; galleries let the column set it.** Otherwise a
+  "gallery" and a "row of three" are the same thing with a different name.
+* **Once you have started the list, the list is authoritative.** The block-level
+  `url` is what a row shows before it has any items — after that it is not
+  allowed to render an image the panel does not show, and `Checks` says so when a
+  block would export as nothing.
 
 ---
 
