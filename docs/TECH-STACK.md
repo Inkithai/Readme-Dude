@@ -1,6 +1,6 @@
 # Tech Stack Decision Record
 
-Status: **proposed** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
+Status: **adopted — Phase 1 built** · Date: 2026-08-28 · Scope: Phases 0–6 of the roadmap (frontend-only)
 
 This document picks the stack for ReadMe Studio and, more importantly, records *why* — so a
 future-you doesn't re-litigate it or silently drift into a worse choice.
@@ -9,6 +9,52 @@ All version numbers below were checked against the npm registry on **2026-08-28*
 combination was **installed and built in a scratch project** (React 19 + Vite 8 + Tailwind 4 +
 dnd-kit + the full remark/rehype preview pipeline + zustand/zundo + Dexie) — it builds green.
 Bundle numbers in [§6](#6-measured-dependency-costs-not-guesses) are real measurements, not folklore.
+
+---
+
+## 0. Status: what Phase 1 actually ships
+
+Phase 1 (the roadmap's "Core README builder") is implemented, with 106 tests
+covering the engine, the store and the mounted shell.
+
+| Roadmap Phase 1 item | Where it lives |
+| --- | --- |
+| application shell | `src/App.tsx` — three panes on wide viewports, Build/Preview switch below `xl` |
+| block sidebar | `src/ui/palette/BlockPalette.tsx` — 12 blocks in 4 groups, click to append or drag to place |
+| canvas | `src/ui/canvas/Canvas.tsx` + `BlockCard.tsx` |
+| block insertion | `store/document.ts` → `addBlock` / `insertBlock` / `handleDrop` (gap droppables give the index) |
+| block deletion | `removeBlock` — selection falls to the neighbouring block |
+| block editing | `src/ui/editor/blockEditors.tsx` — one property panel per block |
+| block reordering | dnd-kit sortable + `Alt+↑/↓` + per-card buttons (drag is never the only path) |
+| duplicate block | `duplicateBlock` (fresh id) + `⌘D` |
+| hide/show block | `toggleHidden` (model data, not UI state) + `H` |
+| basic undo/redo | zundo `temporal` + `equality`, so selection changes never eat an undo step |
+| live preview | `src/ui/preview/MarkdownPreview.tsx` — lazy `react-markdown` + `github-markdown-css` + GFM + alerts + sanitizer |
+| 12 initial blocks | `src/engine/schema.ts` — Hero, Heading, Text, Features, Image, Code, Table, Badges, Tech stack, Installation, Usage, License |
+| Copy Markdown / Download README.md | `src/ui/shell/Toolbar.tsx` + `src/lib/export.ts` (also `⌘S` = download) |
+
+Built beyond the letter of Phase 1 because the architecture asked for it:
+
+- **Block schema + runtime validation** (`zod`), so autosave/JSON imports can never
+  hand the compiler a malformed block — one bad block is dropped and *reported*, not fatal.
+- **`Checks` tab** (`engine/validate.ts`): unbalanced fences, stray `</details>`,
+  unescaped pipes, unresolvable image paths — the roadmap's Pillar 3, surfaced in-app.
+- **Per-block "Markdown" peek**: shows exactly what one block contributes to the export.
+- **Golden-file test** (`engine/__tests__/__fixtures__/sample.readme.md`) — the
+  regression net for every future compiler change.
+- **`.json` export/import** so a document is a file you can commit.
+
+Deliberate deviations from §2, all of them "later, not never":
+
+| Deviation | Why |
+| --- | --- |
+| `CodeArea` instead of CodeMirror 6 | Phase 1 needs "paste code → correct fence", which `fenceFor()` + `dedent()` already guarantee. CodeMirror is a Phase 2 ergonomics win. |
+| own 7-control form kit instead of shadcn/ui + Radix | The Phase 1 surface is small and bespoke; `Segmented` *is* the variant picker. Revisit with dialogs/command palette. |
+| CSS grid instead of `react-resizable-panels` | Drag-resizable panes are polish, not capability. |
+| `localStorage` autosave, not Dexie | One debounced write-behind key is enough until Phase 6 introduces *projects*; `storage.ts` keeps the swap to IndexedDB to one file. |
+
+Measured result: boot chunk **127.7 kB gzip**, lazy preview engine **180.5 kB gzip** —
+the §6 budget (≤ 200 kB on boot) held.
 
 ---
 
@@ -46,16 +92,16 @@ category of heavyweight dependencies (§4).
 | State | **Zustand** + **zundo** (`temporal`) + **immer** middleware | 5.0.15 / 2.3.0 / 11.1.18 | C5. Undo/redo becomes `useTemporalStore().undo()` instead of a hand-rolled command stack. No boilerplate, no provider tree. |
 | Validation / schemas | **Zod** | 4.4.3 | C2 + C3. One schema per block type = runtime validation *and* the type source *and* template/`.json` import safety *and* auto-generated editor fields (§5). |
 | Styling | **Tailwind CSS 4** + `@tailwindcss/vite` | 4.3.3 | Utility CSS is the right fit for ~50 small, bespoke layout widgets. v4 needs no PostCSS config. |
-| Component primitives | **shadcn/ui** (copies source, owns it) on Radix | 4.19 CLI | You will heavily customize controls (segmented "layout variant" pickers, color swatches). Owning the source beats fighting a theme API. Radix gives you a11y for free. |
+| Component primitives | *deferred to Phase 2:* `shadcn/ui` on Radix (4.19 CLI) — Phase 1 ships its own 7-control form kit instead | — | Honest deviation: the Phase 1 surface is ~7 bespoke controls (`Field`, `Segmented`, `ListEditor`, `CodeArea`…), and hand-rolling them was less code than installing + theming Radix. `Segmented` *is* the "layout variant" picker the roadmap needs. Revisit when dialogs/menus/command palette arrive (Phase 10). |
 | Drag & drop | **@dnd-kit** (core 6.3.1 / sortable 10.0.0) | see §4 | Reorder canvas + drag-from-palette + keyboard accessibility. |
 | Markdown preview | **react-markdown** 10 + **remark-gfm** 4 + **rehype-raw** 7 + **rehype-sanitize** 6 + **rehype-slug** 6 | — | C4. The only well-maintained React pipeline that covers GFM *and* allows `<details>`/HTML safely. |
 | GitHub look | **github-markdown-css** 5.9 + **remark-github-blockquote-alert** 2.1 | — | C4. Do not hand-write GitHub's stylesheet; you'd chase them forever and get it subtly wrong. |
 | Code highlighting | **rehype-highlight** with a *curated* language subset (§6) | 7.0.2 | Preview-only decoration. Never affects exported Markdown, so ship the smallest credible subset. |
 | Markdown parsing (import) | **unified** 11 + **remark-parse** 11 → mdast | — | Phase 5's `Markdown → Block detection` reads the AST, not regexes. |
 | Storage | **Dexie** 4.4 (+ `dexie-react-hooks`) | 4.4.5 | C7. IndexedDB with a sane query API, live queries for the Projects list, versioned schema for the version-history feature. |
-| Icons | **lucide-react** (UI icons) + **simple-icons** 16.28 (brand/tech-stack icons) | 1.35.0 | `simple-icons` gives ~3,000 official brand SVG paths as tree-shakeable ESM for the Tech Stack block's "Icons" layout (§4 for the import trap). |
-| Code editor (in blocks) | **CodeMirror 6** via `@uiw/react-codemirror` | 4.25.11 | For Code / Installation / .env blocks: needs line numbers, multi-line, selection. Deliberately *not* Monaco (§4). |
-| Split panes | **react-resizable-panels** 4.12 | — | The editor / canvas / preview three-pane shell; persisted sizes, keyboard resize, a11y. |
+| Icons | **lucide-react** for UI glyphs; **simple-icons as a *devDependency*** for brand data | 1.35.0 / 16.28 | Revised while building Phase 1: v16 ships `icons/*` as raw `.svg` files (no per-icon JS module) and its barrel exposes 3,453 exports, so consuming it at runtime buys you brand *metadata* you could precompute. `scripts/gen-tech-brands.mjs` extracts `{name, slug, hex}` for ~150 curated techs into `src/data/tech-brands.json` (~12 kB, tree-shaken out of the runtime). Icons *inside the generated README* come from `https://cdn.simpleicons.org/<slug>/<hex>` / shields.io `logo=<slug>` — so the bundle never carries SVG path data at all. |
+| Code editor (in blocks) | *deferred to Phase 2:* `CodeMirror 6` via `@uiw/react-codemirror` (4.25.11) — Phase 1 uses a `CodeArea` (mono textarea + Tab-to-indent + dedent) | 4.25.11 | Honest deviation: Phase 1 needs "paste code, get a correct fence", which `CodeArea` + `fenceFor()`/`dedent()` already guarantees. CodeMirror buys line numbers and lint gutters — Phase 2 (engine) territory. Still *not* Monaco (§4). |
+| Split panes | *deferred to Phase 2:* `react-resizable-panels` 4.12 — Phase 1 uses a CSS grid shell + a Preview/Build toggle on narrow screens | — | Honest deviation: drag-resizable panes are ergonomics, not capability, and the three-pane grid with a mobile toggle already meets Phase 1's goal. Add it when the editor/preview width ratio actually matters. |
 | Micro-animation | **@formkit/auto-animate** 0.10 | — | ~1 kB for insert/remove/reorder feedback in the block list. Cheaper than wiring Motion in. |
 | Server state (later) | **@tanstack/react-query** 5.102 | — | Phase 7 only. GitHub API responses are cacheable, refetch-on-revisit data — exactly what Query is for. Not needed for MVP. |
 | PWA | **vite-plugin-pwa** (Workbox) | 1.3.0 | Phase 10. |
@@ -182,7 +228,7 @@ duplicate logic. This is the reason to invest in §2's architecture rule.
 | --- | --- | --- |
 | **dnd-kit staleness** (no `core` release since Dec 2024) | Broken DnD on a future React minor; it's a MVP-critical feature | Isolate behind `ui/canvas/SortableBlock.tsx`; keep the block-order logic in the store (`moveBlock(from,to)`) so a swap to pragmatic-dnd is a UI-only change. Pin exact versions. |
 | **zundo staleness** (last publish Nov 2024) | Undo/redo library rot | It's ~small logic over zustand. Fallback: implement history as `past: Doc[] / future: Doc[]` in your own store — ~40 lines with immer. |
-| **`simple-icons` barrel + dynamic `import()` is a trap** | Measured: **dynamic `import("simple-icons")` produced +5.0 MB raw / +2.1 MB gzip** (defeats tree-shaking, pulls all ~3,000 icons) | Use **static named imports** (`import { siReact } from "simple-icons"`) or deep paths (`simple-icons/icons/react`) — measured at **+3.2 kB** / **+51 B** respectively. Keep a small explicit allow-list map, never "resolve any icon at runtime from the barrel." |
+| **`simple-icons` barrel + dynamic `import()` is a trap** | Measured: **dynamic `import("simple-icons")` produced +5.0 MB raw / +2.1 MB gzip** (defeats tree-shaking, pulls all ~3,000 icons) | Never import the barrel at runtime: extract what you need at build time (`scripts/gen-tech-brands.mjs`). Also note v16 has *dropped* several trademarked brands (Java, C#, Azure, S3, Playwright, OpenAI…) — a volatile set to depend on, so keep a small fallback table; shields.io ignores an unknown `logo=` and still renders the badge. |
 | **highlight.js full language set** | Measured: **+167 kB raw / +52 kB gzip** for the full set | Register ~12 languages (js, ts, jsx, tsx, json, bash, sh, yml, py, sql, dockerfile, md) via `createLowlight`; lazy-load the rest on demand. |
 | **Preview fidelity ≠ export fidelity** | The #1 credibility risk: preview looks right, README looks wrong on GitHub | Treat GitHub as ground truth: (1) a "Raw Markdown" tab always visible, (2) golden-file tests rendered by GitHub's *own* pipeline expectations, (3) an in-app "open a preview gist" escape valve in a later phase. Never let the preview become the spec. |
 | **`rehype-raw` + `rehype-sanitize` ordering** | Wrong order = either stripped `<details>` (broken feature) or unsanitized HTML (XSS) | `rehypePlugins={[rehypeRaw, rehypeSanitize, ...]}` — sanitize *after* raw. Extend the default schema with `details/summary/img[align]/a[name]` rather than disabling sanitization. |
@@ -248,8 +294,11 @@ export const useDocument = create<DocState>()(temporal(immer((set) => ({
 }))));
 // zundo's `temporal` mutator attaches useDocument.temporal, so the toolbar is just:
 //   <button onClick={() => useDocument.temporal.getState().undo()}>↶</button>
-//   useDocument.temporal.getState().past.length    → disabled state
-// Autosave: subscribe → 400 ms debounce → dexie.put(). `past` length is also your trigger for
+//   useDocument.temporal.getState().pastStates.length  → disabled state (v2 calls them
+//   pastStates/futureStates, NOT past/future — and it needs `useStore(store.temporal, sel)`
+//   to subscribe from a component, because `.temporal` is a StoreApi, not a hook.
+//   Also pass `equality` (see below) or every selection change becomes an empty undo step.
+// Autosave: subscribe → debounce → write. `pastStates.length` is also your trigger for
 // snapshotting "on save" (the roadmap's version-history feature).
 ```
 
@@ -350,36 +399,22 @@ Aligned with roadmap §9 ("What I would NOT build initially"):
 
 ---
 
-## 8. Scaffold
+## 8. Scaffold (what the repo actually has)
 
 ```bash
-npm create vite@latest . -- --template react-ts
-npm i react react-dom zod zustand zundo immer dexie dexie-react-hooks \
-      @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities \
-      react-markdown remark-gfm rehype-raw rehype-sanitize rehype-slug remark-github-blockquote-alert \
-      github-markdown-css simple-icons lucide-react
-npm i -D vite @vitejs/plugin-react tailwindcss @tailwindcss/vite vitest @biomejs/biome
-npx shadcn@latest init && npx shadcn@latest add button tabs dialog select sheet tooltip
+npm install
+npm run dev        # http://localhost:5173
+npm test           # 106 tests: engine, golden fixture, store, mounted-shell integration
+npm run typecheck  # tsc -b
+npm run lint       # biome check src
+npm run build      # → dist/, preview with `npm run preview`
+UPDATE_GOLDEN=1 npx vitest run src/engine/__tests__/golden.test.ts   # after an intentional compiler change
+node scripts/gen-tech-brands.mjs      # regenerate src/data/tech-brands.json from simple-icons
 ```
 
-Pin exact versions for `@dnd-kit/*` and `zundo` (stale-dependency insurance). Node ≥ 22.12
-(Vite 8 requirement; this repo's sandbox is 22.22.3 ✓).
-
-### Phase → capability mapping (so the stack stays a servant)
-
-| Phase | Stack items that carry it |
-| --- | --- |
-| 0 — architecture | `zod` schemas, `engine/` boundary, Vitest golden files |
-| 1 — core builder | Zustand+zundo+immer, dnd-kit, react-resizable-panels, shadcn/ui, auto-animate |
-| 2 — GFM engine | own compiler + `escape.ts`; react-markdown + remark-gfm + rehype-raw/sanitize + alerts |
-| 3 — templates | engine-level `templates/*.ts` (block compositions, not `.md` files) |
-| 4 — design system | per-block variant enums + Tailwind-driven canvas + `simple-icons` static map |
-| 5 — import | `unified`/`remark-parse` → mdast → `Block[]`; `api.github.com/.../readme` (CORS ✓) |
-| 6 — local projects | Dexie + `dexie-react-hooks` live queries + debounced autosave |
-| 7 — GitHub API | `@tanstack/react-query` + ETag caching |
-| 10 — PWA | `vite-plugin-pwa`; lazy-loaded engine = warm-cache instant boot |
-
----
+`simple-icons` is a **devDependency** by that last command's design: brand metadata is
+extracted at build time, and the README output points at `cdn.simpleicons.org` /
+shields.io instead of shipping ~3,000 SVG paths.
 
 ## 9. One-line summary
 

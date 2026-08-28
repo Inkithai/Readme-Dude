@@ -1,5 +1,56 @@
-# ReadMe-Generator
-leisure time project
+# ReadMe Studio
+
+A visual GitHub README design studio: compose blocks, choose how each section is
+presented, preview it like github.com, export Markdown. Frontend-only — no backend,
+no account, your document stays in your browser.
+
+> **Status: Phase 1 (core builder) is implemented.** The rest of this document is the
+> product roadmap that Phase 1 was built against.
+> Stack rationale: [`docs/TECH-STACK.md`](docs/TECH-STACK.md).
+
+## Run it
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm test           # 106 tests (engine, golden fixture, store, mounted-shell integration)
+npm run build      # static bundle → dist/  (host anywhere: GitHub Pages, Cloudflare Pages)
+```
+
+## What works today
+
+- **12 block types** — Hero, Heading, Text, Features, Screenshot, Code, Table, Badges,
+  Tech stack, Installation, Usage, License — each with its own property panel.
+- **Canvas**: insert, drag-to-reorder (or `Alt+↑/↓`), duplicate (`⌘D`), hide/show (`H`),
+  delete (`⌫`), and **undo/redo** (`⌘Z` / `⌘⇧Z`).
+- **Layout choices, not just content**: hero alignment, five feature layouts
+  (bullets / numbered / icon+text / 2-col cards / 3-col cards), four tech-stack layouts,
+  per-column table alignment, GitHub alerts.
+- **Live GitHub preview** (`github-markdown-css` + GFM + alerts + sanitized HTML),
+  a **raw Markdown** view, and a **per-block Markdown peek** so you can see what each
+  block contributes to the export.
+- **Checks** tab: unbalanced fences, stray `</details>`, unescaped table pipes and
+  unresolvable image paths are reported before you paste the result into a repo.
+- **Output**: Copy Markdown, Download `README.md` (`⌘S`), plus `.json` export/import.
+  Autosave to `localStorage` so a refresh never loses work.
+
+## Architecture in one line
+
+```
+Block (zod schema)  →  compile.ts (pure functions)  →  GitHub Flavored Markdown
+                    ↘  react-markdown + github-markdown-css  →  preview
+```
+
+`src/engine/**` never imports React. That single rule is what keeps the compiler
+testable, keeps the Markdown correct, and keeps the door open on the roadmap's later
+goal — the same engine driving CHANGELOG/CONTRIBUTING/API docs, or a CLI, or a
+VS Code extension.
+
+---
+
+# Roadmap
+
+Yes. I would structure this as a **product roadmap**, not just a coding roadmap, because the first job is to make sure we are not rebuilding readme.so.
 
 
 Yes. I would structure this as a **product roadmap**, not just a coding roadmap, because the first job is to make sure we are not rebuilding readme.so.

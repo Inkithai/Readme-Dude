@@ -1,0 +1,104 @@
+/* Minimal GitHub-flavoured highlight.js theme (light + dark) so code blocks in
+   the preview read like github.com. Scoped to .rs-preview-frame so it cannot
+   affect the studio UI. ~40 lines instead of shipping highlight.js/themes/*.css. */
+
+.rs-preview-frame .hljs {
+  color: inherit;
+  background: transparent;
+}
+.rs-preview-frame .hljs-comment,
+.rs-preview-frame .hljs-quote {
+  color: #6e7781;
+  font-style: italic;
+}
+.rs-preview-frame .hljs-keyword,
+.rs-preview-frame .hljs-selector-tag,
+.rs-preview-frame .hljs-literal,
+.rs-preview-frame .hljs-doctag,
+.rs-preview-frame .hljs-operator {
+  color: #cf222e;
+}
+.rs-preview-frame .hljs-string,
+.rs-preview-frame .hljs-regexp,
+.rs-preview-frame .hljs-addition,
+.rs-preview-frame .hljs-attribute,
+.rs-preview-frame .hljs-meta .hljs-string {
+  color: #0a3069;
+}
+.rs-preview-frame .hljs-number,
+.rs-preview-frame .hljs-symbol,
+.rs-preview-frame .hljs-bullet,
+.rs-preview-frame .hljs-link {
+  color: #0550ae;
+}
+.rs-preview-frame .hljs-title,
+.rs-preview-frame .hljs-title.function_,
+.rs-preview-frame .hljs-section {
+  color: #8250df;
+}
+.rs-preview-frame .hljs-title.class_,
+.rs-preview-frame .hljs-class .hljs-title,
+.rs-preview-frame .hljs-type,
+.rs-preview-frame .hljs-built_in {
+  color: #953800;
+}
+.rs-preview-frame .hljs-attr,
+.rs-preview-frame .hljs-variable,
+.rs-preview-frame .hljs-template-variable,
+.rs-preview-frame .hljs-name,
+.rs-preview-frame .hljs-selector-id,
+.rs-preview-frame .hljs-selector-class {
+  color: #0550ae;
+}
+.rs-preview-frame .hljs-deletion {
+  color: #f85149;
+  background: #ffebe9;
+}
+.rs-preview-frame .hljs-emphasis {
+  font-style: italic;
+}
+.rs-preview-frame .hljs-strong {
+  font-weight: 600;
+}
+
+.rs-preview-frame[data-color-mode="dark"] .hljs-comment,
+.rs-preview-frame[data-color-mode="dark"] .hljs-quote {
+  color: #8b949e;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-keyword,
+.rs-preview-frame[data-color-mode="dark"] .hljs-selector-tag,
+.rs-preview-frame[data-color-mode="dark"] .hljs-literal,
+.rs-preview-frame[data-color-mode="dark"] .hljs-doctag,
+.rs-preview-frame[data-color-mode="dark"] .hljs-operator {
+  color: #ff7b72;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-string,
+.rs-preview-frame[data-color-mode="dark"] .hljs-regexp,
+.rs-preview-frame[data-color-mode="dark"] .hljs-attribute,
+.rs-preview-frame[data-color-mode="dark"] .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-number,
+.rs-preview-frame[data-color-mode="dark"] .hljs-symbol,
+.rs-preview-frame[data-color-mode="dark"] .hljs-bullet,
+.rs-preview-frame[data-color-mode="dark"] .hljs-link,
+.rs-preview-frame[data-color-mode="dark"] .hljs-attr,
+.rs-preview-frame[data-color-mode="dark"] .hljs-variable,
+.rs-preview-frame[data-color-mode="dark"] .hljs-name,
+.rs-preview-frame[data-color-mode="dark"] .hljs-selector-id,
+.rs-preview-frame[data-color-mode="dark"] .hljs-selector-class {
+  color: #79c0ff;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-title,
+.rs-preview-frame[data-color-mode="dark"] .hljs-title.function_,
+.rs-preview-frame[data-color-mode="dark"] .hljs-section {
+  color: #d2a8ff;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-title.class_,
+.rs-preview-frame[data-color-mode="dark"] .hljs-type,
+.rs-preview-frame[data-color-mode="dark"] .hljs-built_in {
+  color: #ffa657;
+}
+.rs-preview-frame[data-color-mode="dark"] .hljs-deletion {
+  background: #490202;
+}
